@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Competition Risk Classifier</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Internal tool</p>
+        <h1>Competition Risk Classifier</h1>
+        <p class="subhead">Enter a sport and competition name. The app checks the extracted guideline rules first, uses TheSportsDB by default for enrichment, and can run GPT fallback for uncertain cases.</p>
+      </div>
+      <div class="source-card">
+        <span>Rules source</span>
+        <strong id="sourceFile">Loading…</strong>
+        <small id="sourceMeta"></small>
+        <small id="integrationMeta"></small>
+      </div>
+    </section>
+
+    <section class="panel input-panel">
+      <form id="classifyForm">
+        <label>
+          Sport
+          <input id="sport" name="sport" list="sportsList" placeholder="Football" required />
+          <datalist id="sportsList"></datalist>
+        </label>
+        <label>
+          Competition name
+          <input id="competition" name="competition" placeholder="e.g. England League 1" required />
+        </label>
+        <label>
+          Operator / brand
+          <select id="operator" name="operator"></select>
+        </label>
+        <label class="checkbox-row">
+          <input id="isOutright" name="isOutright" type="checkbox" />
+          <span>Outright market: apply two-step-up general rule</span>
+        </label>
+        <label class="checkbox-row">
+          <input id="useExternalLookup" name="useExternalLookup" type="checkbox" checked />
+          <span>Use TheSportsDB enrichment. The free key <code>123</code> is built into the Worker.</span>
+        </label>
+        <label class="checkbox-row">
+          <input id="enableAiFallback" name="enableAiFallback" type="checkbox" />
+          <span>Use GPT fallback for low-confidence results</span>
+        </label>
+
+        <details class="settings-panel" id="aiSettings">
+          <summary>GPT / OpenAI settings</summary>
+          <div class="settings-grid">
+            <label>
+              OpenAI API key
+              <input id="openaiApiKey" name="openaiApiKey" type="password" autocomplete="off" placeholder="Leave empty if OPENAI_API_KEY is set in Cloudflare" />
+            </label>
+            <label>
+              Model
+              <input id="openaiModel" name="openaiModel" value="gpt-4.1-mini" />
+            </label>
+            <label>
+              AI fallback threshold
+              <input id="aiThreshold" name="aiThreshold" type="number" min="0" max="1" step="0.01" value="0.75" />
+            </label>
+            <label class="checkbox-row remember-row">
+              <input id="rememberAiSettings" name="rememberAiSettings" type="checkbox" />
+              <span>Remember these GPT settings in this browser only</span>
+            </label>
+          </div>
+          <p class="settings-note">Best production setup: save <code>OPENAI_API_KEY</code> as a Cloudflare Worker secret and set <code>AI_FALLBACK_ENABLED=true</code>. The website key box is for quick testing or when a manager wants to use their own key.</p>
+        </details>
+
+        <button type="submit" id="submitBtn">Classify competition</button>
+      </form>
+    </section>
+
+    <section id="resultPanel" class="panel result-panel hidden" aria-live="polite">
+      <div class="result-topline">
+        <div>
+          <p class="eyebrow">Result</p>
+          <h2 id="riskClass">—</h2>
+        </div>
+        <div id="confidenceBadge" class="confidence">—</div>
+      </div>
+      <dl class="result-grid">
+        <div><dt>Source</dt><dd id="source">—</dd></div>
+        <div><dt>Match type</dt><dd id="matchType">—</dd></div>
+        <div><dt>Matched rule/list entry</dt><dd id="matched">—</dd></div>
+        <div><dt>Manual review</dt><dd id="manualReview">—</dd></div>
+      </dl>
+      <h3>Explanation</h3>
+      <ol id="explanation"></ol>
+      <details>
+        <summary>Full JSON response</summary>
+        <pre id="jsonOut"></pre>
+      </details>
+    </section>
+  </main>
+
+  <script src="/config.js"></script>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
