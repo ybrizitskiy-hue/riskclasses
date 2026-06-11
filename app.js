@@ -52,34 +52,91 @@ function showApiUrlHelper(message) {
   });
 }
 
+function splitPastedLine(line) {
+  // Excel/Google Sheets normally paste rows as tab-separated text. Keep empty cells;
+  // do not filter them out, because exported tables may contain blank Event/Event ID columns.
+  if (line.includes('\t')) return line.split('\t').map((x) => x.trim());
+  if (line.includes(';')) return line.split(';').map((x) => x.trim());
+  // Only use comma split when there are several commas. Competition names may contain commas,
+  // so tab-separated paste is preferred.
+  if ((line.match(/,/g) || []).length >= 2) return line.split(',').map((x) => x.trim());
+  return line.split(/\s{2,}/).map((x) => x.trim());
+}
+
+function normalizeHeader(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const KNOWN_SPORTS = new Set([
+  'american football', 'aussie rules', 'badminton', 'bandy', 'baseball', 'basketball',
+  'boxing', 'cricket', 'darts', 'esports', 'e sports', 'football', 'futsal', 'golf',
+  'handball', 'ice hockey', 'mma', 'motorsport', 'rugby league', 'rugby union',
+  'snooker', 'soccer', 'table tennis', 'tennis', 'volleyball', 'water polo'
+]);
+
+function isKnownSport(value) {
+  return KNOWN_SPORTS.has(normalizeHeader(value));
+}
+
+function findHeaderIndexes(parts) {
+  const headers = parts.map(normalizeHeader);
+  const sportIndex = headers.findIndex((h) => h === 'sport');
+  const competitionIndex = headers.findIndex((h) => h === 'competition' || h === 'competition name');
+  const operatorIndex = headers.findIndex((h) => h === 'operator' || h === 'operator brand' || h === 'brand' || h === 'trs id');
+  if (sportIndex >= 0 && competitionIndex >= 0) {
+    return { sportIndex, competitionIndex, operatorIndex };
+  }
+  return null;
+}
+
 function parsePastedRows(text) {
   const rows = [];
   const lines = String(text || '').replace(/\r/g, '').split('\n');
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) continue;
+  let detectedHeader = null;
 
-    let parts;
-    if (line.includes('\t')) {
-      parts = line.split('\t').map((x) => x.trim()).filter(Boolean);
-    } else if (line.includes(';')) {
-      parts = line.split(';').map((x) => x.trim()).filter(Boolean);
-    } else if (line.includes(',')) {
-      parts = line.split(',').map((x) => x.trim()).filter(Boolean);
-    } else {
-      // Fallback for copy/paste where columns were converted to multiple spaces.
-      parts = line.split(/\s{2,}/).map((x) => x.trim()).filter(Boolean);
+  for (const rawLine of lines) {
+    if (!rawLine.trim()) continue;
+    const parts = splitPastedLine(rawLine);
+    if (parts.length < 2) continue;
+
+    const headerIndexes = findHeaderIndexes(parts);
+    if (headerIndexes) {
+      detectedHeader = headerIndexes;
+      continue;
     }
 
-    if (parts.length < 2) continue;
-    const sport = parts[0];
-    const competition = parts.slice(1).join(' ').trim();
+    let sport = '';
+    let competition = '';
+    let operator = 'Global';
+
+    if (detectedHeader) {
+      sport = parts[detectedHeader.sportIndex] || '';
+      competition = parts[detectedHeader.competitionIndex] || '';
+      if (detectedHeader.operatorIndex >= 0 && parts[detectedHeader.operatorIndex]) {
+        operator = /^global$/i.test(parts[detectedHeader.operatorIndex]) ? 'Global' : parts[detectedHeader.operatorIndex];
+      }
+    } else if (parts.length >= 3 && isKnownSport(parts[1])) {
+      // Handles rows copied without the header from exports like:
+      // global<TAB>Golf<TAB>Interwetten Open 2026 - Men<TAB>U-29771...
+      operator = /^global$/i.test(parts[0]) ? 'Global' : parts[0];
+      sport = parts[1];
+      competition = parts[2];
+    } else {
+      // Simple old format: Sport<TAB>Competition
+      sport = parts[0];
+      competition = parts[1];
+    }
+
+    sport = String(sport || '').trim();
+    competition = String(competition || '').trim();
     if (!sport || !competition) continue;
 
-    const headerLike = /^sport$/i.test(sport) && /^competition(\s+name)?$/i.test(competition);
-    if (headerLike) continue;
-
-    rows.push({ sport, competition });
+    rows.push({ sport, competition, operator });
   }
   return rows;
 }
