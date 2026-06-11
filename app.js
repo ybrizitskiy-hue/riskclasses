@@ -1,18 +1,14 @@
 const form = document.getElementById('classifyForm');
 const submitBtn = document.getElementById('submitBtn');
+const clearBtn = document.getElementById('clearBtn');
 const resultPanel = document.getElementById('resultPanel');
-const sportsList = document.getElementById('sportsList');
-const operatorSelect = document.getElementById('operator');
-const enableAiFallback = document.getElementById('enableAiFallback');
-const openaiApiKey = document.getElementById('openaiApiKey');
-const openaiModel = document.getElementById('openaiModel');
-const aiThreshold = document.getElementById('aiThreshold');
-const rememberAiSettings = document.getElementById('rememberAiSettings');
-const aiSettings = document.getElementById('aiSettings');
-
-const SETTINGS_KEY = 'riskClassifierAiSettings';
+const bulkInput = document.getElementById('bulkInput');
+const resultTitle = document.getElementById('resultTitle');
+const resultsBody = document.getElementById('resultsBody');
+const copyResultsBtn = document.getElementById('copyResultsBtn');
 
 const API_SETTINGS_KEY = 'riskClassifierApiBaseUrl';
+let lastResults = [];
 
 function cleanApiBase(value) {
   return String(value || '').trim().replace(/\/$/, '');
@@ -28,6 +24,10 @@ async function apiFetch(path, options = {}) {
   const base = getApiBase();
   const url = base ? `${base}${path}` : path;
   return fetch(url, options);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 }
 
 function showApiUrlHelper(message) {
@@ -52,144 +52,157 @@ function showApiUrlHelper(message) {
   });
 }
 
+function parsePastedRows(text) {
+  const rows = [];
+  const lines = String(text || '').replace(/\r/g, '').split('\n');
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
 
-function setText(id, value) {
-  document.getElementById(id).textContent = value ?? '—';
+    let parts;
+    if (line.includes('\t')) {
+      parts = line.split('\t').map((x) => x.trim()).filter(Boolean);
+    } else if (line.includes(';')) {
+      parts = line.split(';').map((x) => x.trim()).filter(Boolean);
+    } else if (line.includes(',')) {
+      parts = line.split(',').map((x) => x.trim()).filter(Boolean);
+    } else {
+      // Fallback for copy/paste where columns were converted to multiple spaces.
+      parts = line.split(/\s{2,}/).map((x) => x.trim()).filter(Boolean);
+    }
+
+    if (parts.length < 2) continue;
+    const sport = parts[0];
+    const competition = parts.slice(1).join(' ').trim();
+    if (!sport || !competition) continue;
+
+    const headerLike = /^sport$/i.test(sport) && /^competition(\s+name)?$/i.test(competition);
+    if (headerLike) continue;
+
+    rows.push({ sport, competition });
+  }
+  return rows;
 }
 
 function confidenceClass(label) {
   return String(label || '').toLowerCase();
 }
 
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+function explanationText(result) {
+  const lines = Array.isArray(result.explanation) ? result.explanation : [];
+  return lines.join(' ');
 }
 
-function loadLocalAiSettings() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
-    if (!saved) return;
-    if (typeof saved.enabled === 'boolean') enableAiFallback.checked = saved.enabled;
-    if (saved.model) openaiModel.value = saved.model;
-    if (saved.threshold) aiThreshold.value = saved.threshold;
-    if (saved.apiKey) openaiApiKey.value = saved.apiKey;
-    rememberAiSettings.checked = true;
-    if (saved.enabled || saved.apiKey) aiSettings.open = true;
-  } catch (_) {
-    // Ignore invalid local settings.
+function renderResults(results) {
+  lastResults = results || [];
+  resultPanel.classList.remove('hidden');
+  resultTitle.textContent = `${lastResults.length} classified row${lastResults.length === 1 ? '' : 's'}`;
+  resultsBody.innerHTML = '';
+
+  for (const item of lastResults) {
+    const result = item.result || item;
+    const tr = document.createElement('tr');
+    const confidencePct = Math.round(Number(result.confidence || 0) * 100);
+    const confidenceLabel = result.confidenceLabel || 'Low';
+    tr.innerHTML = `
+      <td>${item.index ?? ''}</td>
+      <td>${escapeHtml(item.input?.sport || result.input?.sport || '')}</td>
+      <td>${escapeHtml(item.input?.competition || result.input?.competition || '')}</td>
+      <td><strong>${escapeHtml(result.riskClass || 'Error')}</strong></td>
+      <td><span class="confidence mini ${confidenceClass(confidenceLabel)}">${confidencePct}% · ${escapeHtml(confidenceLabel)}</span></td>
+      <td>${result.needsManualReview ? 'Yes' : 'No'}</td>
+      <td>${escapeHtml(explanationText(result) || result.error || '—')}</td>
+    `;
+    resultsBody.appendChild(tr);
   }
 }
 
-function persistLocalAiSettings() {
-  if (!rememberAiSettings.checked) {
-    localStorage.removeItem(SETTINGS_KEY);
-    return;
+function resultsToTsv(results) {
+  const header = ['Sport', 'Competition', 'Risk class', 'Confidence', 'Confidence label', 'Manual review', 'Explanation'];
+  const rows = [header];
+  for (const item of results || []) {
+    const result = item.result || item;
+    rows.push([
+      item.input?.sport || result.input?.sport || '',
+      item.input?.competition || result.input?.competition || '',
+      result.riskClass || '',
+      `${Math.round(Number(result.confidence || 0) * 100)}%`,
+      result.confidenceLabel || '',
+      result.needsManualReview ? 'Yes' : 'No',
+      explanationText(result) || result.error || '',
+    ]);
   }
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-    enabled: enableAiFallback.checked,
-    apiKey: openaiApiKey.value,
-    model: openaiModel.value,
-    threshold: aiThreshold.value,
-  }));
+  return rows.map((row) => row.map((cell) => String(cell).replace(/\t/g, ' ').replace(/\r?\n/g, ' ')).join('\t')).join('\n');
 }
 
-async function loadMeta() {
+async function checkApiConnection() {
   try {
     const res = await apiFetch('/api/meta');
     if (!res.ok) throw new Error(`API returned HTTP ${res.status}`);
-    const data = await res.json();
-    setText('sourceFile', data.metadata?.sourceFile || 'Uploaded workbook');
-    setText('sourceMeta', `${data.metadata?.guidelineRows || 0} guideline rows · ${data.metadata?.footballRcICompetitions || 0} RC I football entries`);
-    const tsdb = data.integrations?.theSportsDB;
-    const openAI = data.integrations?.openAI;
-    setText('integrationMeta', `TheSportsDB: ${tsdb?.apiKeySource || 'default_free_key_123'} · GPT env key: ${openAI?.envKeyConfigured ? 'configured' : 'not configured'}`);
-    sportsList.innerHTML = (data.sports || []).map((s) => `<option value="${escapeHtml(s)}"></option>`).join('');
-    operatorSelect.innerHTML = (data.operators || ['Global']).map((o) => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join('');
-    document.getElementById('sport').value = 'Football';
-    if (openAI?.defaultModel) openaiModel.value = openAI.defaultModel;
-    if (Number.isFinite(openAI?.defaultThreshold)) aiThreshold.value = openAI.defaultThreshold;
-    enableAiFallback.checked = Boolean(openAI?.fallbackDefaultEnabled);
-    if (enableAiFallback.checked || openAI?.envKeyConfigured) aiSettings.open = true;
-    loadLocalAiSettings();
   } catch (error) {
-    setText('sourceFile', 'Worker API not connected');
-    setText('sourceMeta', 'Open the connection panel above.');
-    setText('integrationMeta', error.message || 'API connection failed');
-    operatorSelect.innerHTML = '<option value="Global">Global</option>';
-    document.getElementById('sport').value = 'Football';
     showApiUrlHelper(error.message || 'The website could not reach the Worker API.');
-    loadLocalAiSettings();
   }
-}
-function renderResult(data) {
-  resultPanel.classList.remove('hidden');
-  setText('riskClass', data.riskClass || 'No result');
-  const conf = document.getElementById('confidenceBadge');
-  conf.textContent = `${Math.round((data.confidence || 0) * 100)}% · ${data.confidenceLabel || 'Low'}`;
-  conf.className = `confidence ${confidenceClass(data.confidenceLabel)}`;
-  setText('source', data.source);
-  setText('matchType', data.matchType);
-  setText('matched', data.matchedCompetition || data.matchedRuleText || data.matchedTerm || data.operatorRule || '—');
-  setText('manualReview', data.needsManualReview ? 'Yes' : 'No');
-  const explanation = document.getElementById('explanation');
-  explanation.innerHTML = '';
-  for (const line of data.explanation || []) {
-    const li = document.createElement('li');
-    li.textContent = line;
-    explanation.appendChild(li);
-  }
-  const extra = [];
-  if (data.externalEnrichment?.provider) {
-    const status = data.externalEnrichment.status;
-    const best = data.externalEnrichment.bestMatch?.league;
-    extra.push(`TheSportsDB ${status}${best ? `: ${best}` : ''}`);
-  }
-  if (data.aiFallback?.status) {
-    extra.push(`GPT fallback: ${data.aiFallback.status}${data.aiFallback.model ? ` (${data.aiFallback.model})` : ''}`);
-  }
-  for (const line of extra) {
-    const li = document.createElement('li');
-    li.textContent = line;
-    explanation.appendChild(li);
-  }
-  setText('jsonOut', JSON.stringify(data, null, 2));
 }
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
-  persistLocalAiSettings();
+  const rows = parsePastedRows(bulkInput.value);
+  if (!rows.length) {
+    renderResults([{ index: 1, input: { sport: '', competition: '' }, result: { riskClass: 'Error', confidence: 0, confidenceLabel: 'Low', needsManualReview: true, explanation: ['Paste rows with two columns: Sport and Competition.'] } }]);
+    return;
+  }
+
   submitBtn.disabled = true;
-  submitBtn.textContent = 'Classifying…';
-  const payload = {
-    sport: form.sport.value,
-    competition: form.competition.value,
-    operator: form.operator.value,
-    isOutright: form.isOutright.checked,
-    useExternalLookup: form.useExternalLookup.checked,
-    aiFallbackEnabled: enableAiFallback.checked,
-    openaiModel: openaiModel.value || 'gpt-4.1-mini',
-    aiFallbackConfidenceThreshold: Number(aiThreshold.value || 0.75),
-  };
-  if (openaiApiKey.value.trim()) payload.openaiApiKey = openaiApiKey.value.trim();
+  submitBtn.textContent = `Classifying ${rows.length} row${rows.length === 1 ? '' : 's'}…`;
+
   try {
-    const res = await apiFetch('/api/classify', {
+    const res = await apiFetch('/api/classify-batch', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        items: rows,
+        operator: 'Global',
+        isOutright: false,
+        useExternalLookup: true,
+        aiFallbackEnabled: true,
+      }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Classification failed');
-    renderResult(data);
+    if (!res.ok) throw new Error(data.error || 'Batch classification failed');
+    renderResults(data.results || []);
   } catch (error) {
-    renderResult({ riskClass: 'Error', confidence: 0, confidenceLabel: 'Low', source: 'client', matchType: 'error', needsManualReview: true, explanation: [error.message] });
+    renderResults(rows.map((row, idx) => ({
+      index: idx + 1,
+      input: row,
+      result: { riskClass: 'Error', confidence: 0, confidenceLabel: 'Low', needsManualReview: true, explanation: [error.message] },
+    })));
   } finally {
     submitBtn.disabled = false;
-    submitBtn.textContent = 'Classify competition';
+    submitBtn.textContent = 'Classify pasted rows';
   }
 });
 
-for (const el of [enableAiFallback, openaiApiKey, openaiModel, aiThreshold, rememberAiSettings]) {
-  el.addEventListener('change', persistLocalAiSettings);
-}
+clearBtn.addEventListener('click', () => {
+  bulkInput.value = '';
+  resultsBody.innerHTML = '';
+  resultPanel.classList.add('hidden');
+  lastResults = [];
+});
 
-loadMeta();
+copyResultsBtn.addEventListener('click', async () => {
+  const tsv = resultsToTsv(lastResults);
+  try {
+    await navigator.clipboard.writeText(tsv);
+    copyResultsBtn.textContent = 'Copied';
+    setTimeout(() => { copyResultsBtn.textContent = 'Copy results'; }, 1200);
+  } catch (_) {
+    const area = document.createElement('textarea');
+    area.value = tsv;
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand('copy');
+    area.remove();
+  }
+});
+
+checkApiConnection();
