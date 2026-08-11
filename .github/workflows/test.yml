@@ -1,0 +1,21 @@
+name: Regression tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  node-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Routing regression
+        run: node tests/routing-smoke.mjs
+      - name: Admin routing regression
+        run: node tests/admin-gate-smoke.mjs
+      - name: Rules manager regression
+        run: node tests/rules-manager-smoke.mjs
