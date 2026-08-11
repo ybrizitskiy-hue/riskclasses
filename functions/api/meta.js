@@ -1,3 +1,5 @@
+import { getGlobalRoutingMode } from '../lib/runtime-config.js';
+
 const RULES_KEY = 'custom-gpt-v2';
 
 export async function onRequestGet(context) {
@@ -20,14 +22,16 @@ export async function onRequestGet(context) {
     }
   }
 
+  const globalRoutingMode = await getGlobalRoutingMode(context.env);
   const ok = apiKeyConfigured && rulesConfigured;
   return Response.json({
     ok,
     service: 'risk-class-analyst-v2',
     routing: {
-      default: 'auto',
+      globalMode: globalRoutingMode,
+      globallyManaged: true,
+      modeSelectorAdminOnly: true,
       modes: ['auto', 'economy', 'quality'],
-      adminProtectedModes: ['economy', 'quality'],
       costTelemetryAdminOnly: true,
       extraction: { model: context.env.OPENAI_EXTRACT_MODEL || 'gpt-5.6-luna', reasoning: 'low' },
       economy: { model: context.env.OPENAI_LUNA_MODEL || 'gpt-5.6-luna', reasoning: 'medium' },
