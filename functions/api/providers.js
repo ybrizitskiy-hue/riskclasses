@@ -1,11 +1,16 @@
 import { isAdminRequest } from '../lib/admin.js';
 import {
+  isManagedCustomProfile,
   loadProviderConfig,
   normalizeProviderConfig,
   saveProviderConfig,
   validateProviderConfig,
 } from '../lib/provider-config.js';
 import { callAiJson, publicProfileStatus } from '../lib/ai-client.js';
+import {
+  customProviderAddressChanged,
+  syncManagedCustomProviders,
+} from '../lib/cloudflare-provider-admin.js';
 
 const TEST_SCHEMA = {
   type: 'object',
@@ -36,12 +41,24 @@ export async function onRequestPost(context) {
   const config = normalizeProviderConfig(body?.config || await loadProviderConfig(context.env), context.env);
   const validation = validateProviderConfig(config, context.env);
   if (action === 'validate') return json({ ok: validation.valid, validation, config }, validation.valid ? 200 : 400);
-  if (action !== 'test') return json({ ok: false, error: 'Unsupported provider action.' }, 400);
-  if (!validation.valid) return json({ ok: false, validation, error: 'Provider configuration must validate before testing.' }, 400);
+  if (!['test', 'sync'].includes(action)) return json({ ok: false, error: 'Unsupported provider action.' }, 400);
+  if (!validation.valid) return json({ ok: false, validation, error: 'Provider configuration must validate before testing or syncing.' }, 400);
 
   const profileId = String(body?.profileId || '');
   const profile = (config.profiles || []).find((item) => item.id === profileId);
   if (!profile) return json({ ok: false, error: 'Provider profile not found.' }, 404);
+
+  if (action === 'sync') {
+    if (!isManagedCustomProfile(profile)) return json({ ok: false, error: 'This profile does not have a managed custom-provider Base URL.' }, 400);
+    const sync = await syncManagedCustomProviders(context.env, config, { profileIds: [profileId] });
+    return json(sync.ok ? { ok: true, sync } : { ok: false, error: sync.error, sync }, sync.ok ? 200 : (sync.status || 502));
+  }
+
+  let sync = null;
+  if (isManagedCustomProfile(profile) && context.env.CF_AI_GATEWAY_ADMIN_TOKEN) {
+    sync = await syncManagedCustomProviders(context.env, config, { profileIds: [profileId] });
+    if (!sync.ok) return json({ ok: false, error: `Could not synchronize provider address before test. ${sync.error}`, sync }, sync.status || 502);
+  }
 
   const input = [
     { role: 'developer', content: [{ type: 'input_text', text: 'This is a connectivity test. Return exactly the requested JSON object.' }] },
@@ -59,14 +76,13 @@ export async function onRequestPost(context) {
     useWeb: false,
     promptCacheKey: '',
   });
-  if (!result.ok || result.result?.status !== 'ok') {
-    return json({ ok: false, error: result.error || 'Provider returned an unexpected test result.', telemetry: result.telemetry || null }, result.status || 502);
-  }
+  if (!result.ok || result.result?.status !== 'ok') return json({ ok: false, error: result.error || 'Provider returned an unexpected test result.', telemetry: result.telemetry || null, sync }, result.status || 502);
   return json({
     ok: true,
     result: 'ok',
     endpoint: publicProfileStatus(context.env, config, profile).endpoint,
     telemetry: result.telemetry || null,
+    sync,
   });
 }
 
@@ -80,8 +96,19 @@ export async function onRequestPut(context) {
   const candidate = normalizeProviderConfig(body?.config, context.env);
   const validation = validateProviderConfig(candidate, context.env);
   if (!validation.valid) return json({ ok: false, error: 'Provider configuration failed validation.', validation }, 400);
-  if (candidate.version === current.version) {
-    candidate.version = `${current.version || 'providers'}-r${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  if (candidate.version === current.version) candidate.version = `${current.version || 'providers'}-r${new Date().toISOString().replace(/[:.]/g, '-')}`;
+
+  let sync = { ok: true, changed: false, results: [] };
+  if (customProviderAddressChanged(current, candidate)) {
+    if (!context.env.CF_AI_GATEWAY_ADMIN_TOKEN) {
+      return json({
+        ok: false,
+        error: 'A custom provider Base URL was added or changed. Add the CF_AI_GATEWAY_ADMIN_TOKEN secret with AI Gateway Edit/Write permission, then publish again.',
+        validation,
+      }, 503);
+    }
+    sync = await syncManagedCustomProviders(context.env, candidate);
+    if (!sync.ok) return json({ ok: false, error: `Could not synchronize custom provider address. ${sync.error}`, validation, sync }, sync.status || 502);
   }
 
   try {
@@ -92,9 +119,10 @@ export async function onRequestPut(context) {
       validation: validateProviderConfig(saved, context.env),
       environment: environmentSummary(context.env, saved),
       profiles: saved.profiles.map((profile) => publicProfileStatus(context.env, saved, profile)),
+      sync,
     });
   } catch (error) {
-    return json({ ok: false, error: error?.message || 'Could not save provider configuration.', validation: error?.validation || validation }, 500);
+    return json({ ok: false, error: error?.message || 'Could not save provider configuration.', validation: error?.validation || validation, sync }, 500);
   }
 }
 
@@ -102,6 +130,8 @@ function environmentSummary(env, config) {
   return {
     openAiKeyConfigured: Boolean(env.OPENAI_API_KEY),
     cloudflareGatewayTokenConfigured: Boolean(env.CF_AI_GATEWAY_TOKEN),
+    cloudflareGatewayAdminTokenConfigured: Boolean(env.CF_AI_GATEWAY_ADMIN_TOKEN),
+    adminSigningSecretConfigured: Boolean(env.RISK_ADMIN_SIGNING_SECRET),
     envAccountIdConfigured: Boolean(env.CF_ACCOUNT_ID),
     envAccountId: env.CF_ACCOUNT_ID || '',
     effectiveAccountId: config?.cloudflare?.accountId || env.CF_ACCOUNT_ID || '',
