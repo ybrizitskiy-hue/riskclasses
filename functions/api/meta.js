@@ -1,9 +1,17 @@
 import { getGlobalRoutingMode } from '../lib/runtime-config.js';
+import {
+  getModeProfiles,
+  loadProviderConfig,
+  profileRuntimeStatus,
+  routingLabels,
+  validateProviderConfig,
+} from '../lib/provider-config.js';
 
 const RULES_KEY = 'custom-gpt-v2';
 
 export async function onRequestGet(context) {
   const apiKeyConfigured = Boolean(context.env.OPENAI_API_KEY);
+  const cloudflareGatewayTokenConfigured = Boolean(context.env.CF_AI_GATEWAY_TOKEN);
   const adminPinConfigured = Boolean(context.env.RISK_ADMIN_PIN);
   const kvConfigured = Boolean(context.env.RISK_RULES && typeof context.env.RISK_RULES.get === 'function');
   let rulesConfigured = false;
@@ -23,26 +31,36 @@ export async function onRequestGet(context) {
   }
 
   const globalRoutingMode = await getGlobalRoutingMode(context.env);
-  const ok = apiKeyConfigured && rulesConfigured;
+  const providerConfig = await loadProviderConfig(context.env);
+  const providerValidation = validateProviderConfig(providerConfig, context.env);
+  const route = getModeProfiles(providerConfig, globalRoutingMode);
+  const extractionStatus = profileRuntimeStatus(context.env, providerConfig, route.extraction);
+  const primaryStatus = profileRuntimeStatus(context.env, providerConfig, route.primary);
+  const ok = rulesConfigured && providerValidation.valid && extractionStatus.ready && primaryStatus.ready;
+
   return Response.json({
     ok,
-    service: 'risk-class-analyst-v2',
+    service: 'risk-class-analyst-v3',
     routing: {
       globalMode: globalRoutingMode,
       globallyManaged: true,
       modeSelectorAdminOnly: true,
       modes: ['auto', 'economy', 'quality'],
       costTelemetryAdminOnly: true,
-      extraction: { model: context.env.OPENAI_EXTRACT_MODEL || 'gpt-5.6-luna', reasoning: 'low' },
-      economy: { model: context.env.OPENAI_LUNA_MODEL || 'gpt-5.6-luna', reasoning: 'medium' },
-      auto: {
-        primaryModel: context.env.OPENAI_LUNA_MODEL || 'gpt-5.6-luna',
-        escalationModel: context.env.OPENAI_TERRA_MODEL || 'gpt-5.6-terra',
-        reasoning: 'medium',
-      },
-      quality: { model: context.env.OPENAI_TERRA_MODEL || 'gpt-5.6-terra', reasoning: 'medium' },
-      promptCacheRetention: '24h',
-      webSearchOnlyForUnresolved: true,
+      labels: routingLabels(providerConfig),
+      providerConfigVersion: providerConfig.version,
+      extraction: { profile: route.extraction?.label || null, model: route.extraction?.model || null },
+      primary: { profile: route.primary?.label || null, model: route.primary?.model || null },
+      research: { profile: route.research?.label || null, model: route.research?.model || null },
+      escalation: { profile: route.escalation?.label || null, model: route.escalation?.model || null },
+    },
+    providers: {
+      valid: providerValidation.valid,
+      profileCount: providerConfig.profiles?.length || 0,
+      openAiKeyConfigured: apiKeyConfigured,
+      cloudflareGatewayTokenConfigured,
+      extractionReady: extractionStatus.ready,
+      primaryReady: primaryStatus.ready,
     },
     apiKeyConfigured,
     adminPinConfigured,

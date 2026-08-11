@@ -17,8 +17,16 @@ jobs:
         run: |
           node --check routing.js
           node --check rules-manager.js
+          node --check provider-manager.js
+          node --check provider-badge.js
           node --check functions/api/analyze-core.js
           node --check functions/api/rules.js
+          node --check functions/api/providers.js
+          node --check functions/api/meta.js
+          node --check functions/lib/admin.js
+          node --check functions/lib/ai-client.js
+          node --check functions/lib/provider-config.js
+          node --check functions/lib/cloudflare-provider-admin.js
           node --check functions/lib/deterministic.js
           node --check functions/lib/rules-bundle.js
       - name: Routing regression
@@ -27,3 +35,5 @@ jobs:
         run: node tests/admin-gate-smoke.mjs
       - name: Rules manager regression
         run: node tests/rules-manager-smoke.mjs
+      - name: Provider manager regression
+        run: node tests/provider-manager-smoke.mjs

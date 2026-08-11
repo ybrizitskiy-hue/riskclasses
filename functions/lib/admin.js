@@ -3,7 +3,7 @@ const SESSION_SECONDS = 8 * 60 * 60;
 const encoder = new TextEncoder();
 
 export function isAdminConfigured(env) {
-  return Boolean(String(env?.RISK_ADMIN_PIN || '').trim() && String(env?.OPENAI_API_KEY || '').trim());
+  return Boolean(String(env?.RISK_ADMIN_PIN || '').trim() && signingSecret(env));
 }
 
 export function verifyAdminPin(pin, env) {
@@ -64,9 +64,9 @@ async function verifySignature(message, signature, env) {
 }
 
 async function importHmacKey(env) {
-  // The OpenAI secret adds high entropy so the four-digit admin PIN is never usable
-  // as an offline HMAC key by itself. Both values remain server-side in Cloudflare.
-  const material = `${env.RISK_ADMIN_PIN}\n${env.OPENAI_API_KEY}\nriskclasses-admin-v1`;
+  // Prefer a dedicated signing secret so admin access is independent of any AI provider.
+  // Existing deployments remain compatible by falling back to the OpenAI or AI Gateway secret.
+  const material = `${env.RISK_ADMIN_PIN}\n${signingSecret(env)}\nriskclasses-admin-v1`;
   return crypto.subtle.importKey(
     'raw',
     encoder.encode(material),
@@ -74,6 +74,15 @@ async function importHmacKey(env) {
     false,
     ['sign', 'verify'],
   );
+}
+
+function signingSecret(env) {
+  return String(
+    env?.RISK_ADMIN_SIGNING_SECRET ||
+    env?.OPENAI_API_KEY ||
+    env?.CF_AI_GATEWAY_TOKEN ||
+    ''
+  ).trim();
 }
 
 function readCookie(header, name) {
