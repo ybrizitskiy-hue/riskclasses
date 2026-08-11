@@ -39,3 +39,5 @@ jobs:
         run: node tests/provider-manager-smoke.mjs
       - name: Provider badge browser regression
         run: node tests/provider-badge-browser-smoke.mjs
+      - name: Provider panel stability regression
+        run: node tests/provider-panel-stability-smoke.mjs

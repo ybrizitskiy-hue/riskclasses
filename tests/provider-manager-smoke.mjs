@@ -84,10 +84,7 @@ assert(validation.valid, `Custom Chat config must validate: ${validation.errors.
 
 globalThis.fetch = async (url, init) => {
   captured = { url, init, body: JSON.parse(init.body) };
-  return new Response(JSON.stringify({
-    model:'alt-model', usage:{ prompt_tokens:50, completion_tokens:5 },
-    choices:[{ message:{ content:'{"status":"ok"}' } }],
-  }), { status:200, headers:{'content-type':'application/json'} });
+  return chatOkResponse();
 };
 result = await callAiJson({
   env:cfEnv, config:chatConfig, profile:chatProfile, reasoning:'low', stage:'chat-test',
@@ -99,6 +96,46 @@ assert(captured.url === 'https://gateway.ai.cloudflare.com/v1/abc123account/risk
 assert(captured.init.headers['cf-aig-authorization'] === 'Bearer cf-run-token', 'Provider-native gateway must use cf-aig-authorization');
 assert(captured.body.response_format?.type === 'json_schema', 'Chat compatibility must use JSON schema response_format');
 assert(!captured.body.tools, 'Generic Chat Completions must not receive Responses web_search tool');
+
+let retryCalls = 0;
+globalThis.fetch = async () => {
+  retryCalls += 1;
+  if (retryCalls < 3) {
+    return new Response(JSON.stringify({ error:{ message:'temporary outage' } }), {
+      status:503, headers:{'content-type':'application/json','retry-after':'0'},
+    });
+  }
+  return chatOkResponse();
+};
+result = await callAiJson({
+  env:cfEnv, config:chatConfig, profile:chatProfile, reasoning:'low', stage:'retry-http-test',
+  input:[{role:'user',content:[{type:'input_text',text:'test'}]}], schema, schemaName:'test_schema', useWeb:false,
+});
+assert(result.ok && retryCalls === 3, 'Retryable HTTP failures should retry twice and then succeed');
+assert(result.attempts === 3 && result.telemetry?.retries === 2, 'Retry count must be exposed in provider telemetry');
+
+let networkCalls = 0;
+globalThis.fetch = async () => {
+  networkCalls += 1;
+  if (networkCalls === 1) throw new Error('temporary connection reset');
+  return chatOkResponse();
+};
+result = await callAiJson({
+  env:cfEnv, config:chatConfig, profile:chatProfile, reasoning:'low', stage:'retry-network-test',
+  input:[{role:'user',content:[{type:'input_text',text:'test'}]}], schema, schemaName:'test_schema', useWeb:false,
+});
+assert(result.ok && networkCalls === 2 && result.attempts === 2, 'Transient network errors should retry automatically');
+
+let authCalls = 0;
+globalThis.fetch = async () => {
+  authCalls += 1;
+  return new Response(JSON.stringify({ error:{ message:'bad key' } }), { status:401, headers:{'content-type':'application/json'} });
+};
+result = await callAiJson({
+  env:cfEnv, config:chatConfig, profile:chatProfile, reasoning:'low', stage:'no-retry-auth-test',
+  input:[{role:'user',content:[{type:'input_text',text:'test'}]}], schema, schemaName:'test_schema', useWeb:false,
+});
+assert(!result.ok && result.status === 401 && authCalls === 1, 'Authentication failures must not be retried');
 
 const syncEnv = { CF_AI_GATEWAY_ADMIN_TOKEN:'cf-admin-token' };
 const syncCalls = [];
@@ -149,7 +186,7 @@ assert(response.status === 200 && data.ok && data.config.cloudflare.gatewayId ==
 const stored = JSON.parse(await kv.get(PROVIDER_CONFIG_KEY));
 assert(stored.cloudflare.gatewayId === 'new-gateway', 'Published provider config must persist to KV');
 
-console.log('provider manager smoke tests passed (25 checks)');
+console.log('provider manager smoke tests passed (31 checks)');
 
 function context(method, body, cookieValue, env) {
   const headers = {};
@@ -159,5 +196,11 @@ function context(method, body, cookieValue, env) {
 }
 function cfResponse(result) {
   return new Response(JSON.stringify({ success:true, result }), { status:200, headers:{'content-type':'application/json'} });
+}
+function chatOkResponse() {
+  return new Response(JSON.stringify({
+    model:'alt-model', usage:{ prompt_tokens:50, completion_tokens:5 },
+    choices:[{ message:{ content:'{"status":"ok"}' } }],
+  }), { status:200, headers:{'content-type':'application/json'} });
 }
 function assert(condition, message) { if (!condition) throw new Error(message); }

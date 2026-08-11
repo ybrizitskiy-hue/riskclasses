@@ -4,6 +4,9 @@ import {
   profileRuntimeStatus,
 } from './provider-config.js';
 
+const RETRY_DELAYS_MS = [700, 1800];
+const MAX_RETRY_AFTER_MS = 5000;
+
 export async function callAiJson({
   env,
   config,
@@ -30,39 +33,51 @@ export async function callAiJson({
     ? buildChatRequest({ profile, reasoning, input, schema, schemaName })
     : buildResponsesRequest({ profile, reasoning, input, schema, schemaName, actualWeb, promptCacheKey });
 
-  let upstream;
-  try {
-    upstream = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(requestBody),
-    });
-  } catch (error) {
-    return { ok: false, status: 502, error: `Could not reach ${profile.label}: ${error?.message || String(error)}` };
+  const fetchResult = await fetchWithRetries(endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(requestBody),
+  });
+  if (!fetchResult.response) {
+    return {
+      ok: false,
+      status: 502,
+      error: `Could not reach ${profile.label} after ${fetchResult.attempts} attempts: ${fetchResult.error?.message || String(fetchResult.error || 'network error')}`,
+      attempts: fetchResult.attempts,
+    };
   }
 
+  const upstream = fetchResult.response;
   const received = await upstream.json().catch(() => ({}));
   const data = unwrapCloudflare(received);
-  const telemetry = callTelemetry(data, profile, { reasoning, stage, useWeb: actualWeb, endpoint });
+  const telemetry = callTelemetry(data, profile, {
+    reasoning,
+    stage,
+    useWeb: actualWeb,
+    endpoint,
+    attempts: fetchResult.attempts,
+  });
 
   if (!upstream.ok || received?.success === false) {
+    const suffix = fetchResult.attempts > 1 ? ` after ${fetchResult.attempts} attempts` : '';
     return {
       ok: false,
       status: upstream.status >= 500 ? 502 : upstream.status,
-      error: upstreamError(received, data, upstream.status, profile.label),
+      error: `${upstreamError(received, data, upstream.status, profile.label)}${suffix}`,
       telemetry,
+      attempts: fetchResult.attempts,
     };
   }
 
   const outputText = profile.protocol === 'chat-completions'
     ? extractChatOutputText(data)
     : extractResponsesOutputText(data);
-  if (!outputText) return { ok: false, status: 502, error: `${profile.label} returned no structured output during ${stage}.`, telemetry };
+  if (!outputText) return { ok: false, status: 502, error: `${profile.label} returned no structured output during ${stage}.`, telemetry, attempts: fetchResult.attempts };
 
   try {
-    return { ok: true, result: JSON.parse(outputText), telemetry, rawModel: data?.model || profile.model };
+    return { ok: true, result: JSON.parse(outputText), telemetry, rawModel: data?.model || profile.model, attempts: fetchResult.attempts };
   } catch {
-    return { ok: false, status: 502, error: `${profile.label} returned invalid JSON during ${stage}.`, telemetry };
+    return { ok: false, status: 502, error: `${profile.label} returned invalid JSON during ${stage}.`, telemetry, attempts: fetchResult.attempts };
   }
 }
 
@@ -95,6 +110,50 @@ export function publicProfileStatus(env, config, profile) {
     endpoint: profileEndpoint(config, profile, env),
     credential: runtime.credential || '',
   };
+}
+
+async function fetchWithRetries(endpoint, init) {
+  let lastError = null;
+  const maxAttempts = RETRY_DELAYS_MS.length + 1;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(endpoint, init);
+      if (!isRetryableStatus(response.status) || attempt === maxAttempts) {
+        return { response, attempts: attempt, error: null };
+      }
+      await sleep(retryDelay(response, attempt));
+    } catch (error) {
+      lastError = error;
+      if (attempt === maxAttempts) return { response: null, attempts: attempt, error: lastError };
+      await sleep(RETRY_DELAYS_MS[attempt - 1]);
+    }
+  }
+  return { response: null, attempts: maxAttempts, error: lastError };
+}
+
+function isRetryableStatus(status) {
+  const code = Number(status || 0);
+  return code === 408 || code === 409 || code === 425 || code === 429 || code >= 500;
+}
+
+function retryDelay(response, attempt) {
+  const retryAfter = parseRetryAfter(response?.headers?.get?.('retry-after'));
+  if (retryAfter != null) return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, retryAfter));
+  return RETRY_DELAYS_MS[Math.max(0, attempt - 1)] ?? RETRY_DELAYS_MS.at(-1) ?? 0;
+}
+
+function parseRetryAfter(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const seconds = Number(text);
+  if (Number.isFinite(seconds)) return seconds * 1000;
+  const at = Date.parse(text);
+  if (!Number.isFinite(at)) return null;
+  return Math.max(0, at - Date.now());
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
 }
 
 function buildHeaders(env, config, profile) {
@@ -219,7 +278,7 @@ function extractChatOutputText(response) {
   return '';
 }
 
-function callTelemetry(response, profile, { reasoning, stage, useWeb, endpoint }) {
+function callTelemetry(response, profile, { reasoning, stage, useWeb, endpoint, attempts = 1 }) {
   const usage = response?.usage || {};
   const inputTokens = Number(usage.input_tokens ?? usage.prompt_tokens ?? 0);
   const cachedInputTokens = Number(usage.input_tokens_details?.cached_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? 0);
@@ -246,6 +305,8 @@ function callTelemetry(response, profile, { reasoning, stage, useWeb, endpoint }
     protocol: profile?.protocol || '',
     model: response?.model || profile?.model || '',
     reasoning,
+    attempts,
+    retries: Math.max(0, Number(attempts || 1) - 1),
     inputTokens,
     cachedInputTokens,
     outputTokens,
