@@ -6,7 +6,8 @@ import {
   validateProviderConfig,
 } from '../functions/lib/provider-config.js';
 import { callAiJson, profileEndpoint } from '../functions/lib/ai-client.js';
-import { onRequestGet, onRequestPost, onRequestPut } from '../functions/api/providers.js';
+import { syncManagedCustomProviders } from '../functions/lib/cloudflare-provider-admin.js';
+import { onRequestGet, onRequestPut } from '../functions/api/providers.js';
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 if (!globalThis.btoa) globalThis.btoa = (value) => Buffer.from(value, 'binary').toString('base64');
@@ -24,7 +25,7 @@ assert(direct.routes.auto.primary === 'openai-luna-direct' && direct.routes.auto
 
 const cfProfile = {
   id: 'cf-primary', label: 'Cloudflare primary', transport: 'cloudflare-rest', protocol: 'responses',
-  model: 'openai/test-model', providerSlug: '', pathPrefix: '', byokAlias: 'production',
+  model: 'openai/test-model', providerSlug: '', baseUrl:'', pathPrefix: '', byokAlias: 'production',
   capabilities: { vision:true, jsonSchema:true, reasoning:true, webSearch:false, promptCache:false, store:false },
   pricing: { input:1, cached:0.1, output:2, webSearch:null },
 };
@@ -64,14 +65,14 @@ assert(!('store' in captured.body) && !('prompt_cache_key' in captured.body), 'D
 
 const chatProfile = {
   id:'custom-chat', label:'Custom Chat', transport:'cloudflare-provider', protocol:'chat-completions',
-  model:'alt-model', providerSlug:'custom-alt', pathPrefix:'v1', byokAlias:'default',
+  model:'alt-model', providerSlug:'custom-alt', baseUrl:'https://api.alt.test', pathPrefix:'v1', byokAlias:'default',
   capabilities:{ vision:true, jsonSchema:true, reasoning:false, webSearch:false, promptCache:false, store:false },
   pricing:{ input:null, cached:null, output:null, webSearch:null },
 };
 const chatConfig = JSON.parse(JSON.stringify(cfConfig));
 chatConfig.profiles = [chatProfile];
 for (const mode of ['auto','economy','quality']) chatConfig.routes[mode] = { extraction:'custom-chat', primary:'custom-chat', research:null, escalation:null };
-validation = validateProviderConfig(chatConfig, cfEnv);
+validation = validateProviderConfig(chatConfig, { ...cfEnv, CF_AI_GATEWAY_ADMIN_TOKEN:'cf-admin-token' });
 assert(validation.valid, `Custom Chat config must validate: ${validation.errors.join('; ')}`);
 
 globalThis.fetch = async (url, init) => {
@@ -91,6 +92,33 @@ assert(captured.url === 'https://gateway.ai.cloudflare.com/v1/abc123account/risk
 assert(captured.init.headers['cf-aig-authorization'] === 'Bearer cf-run-token', 'Provider-native gateway must use cf-aig-authorization');
 assert(captured.body.response_format?.type === 'json_schema', 'Chat compatibility must use JSON schema response_format');
 assert(!captured.body.tools, 'Generic Chat Completions must not receive Responses web_search tool');
+
+const syncEnv = { CF_AI_GATEWAY_ADMIN_TOKEN:'cf-admin-token' };
+const syncCalls = [];
+globalThis.fetch = async (url, init = {}) => {
+  syncCalls.push({ url, method:init.method, headers:init.headers, body:init.body ? JSON.parse(init.body) : null });
+  if (init.method === 'GET') return cfResponse([]);
+  if (init.method === 'POST') return cfResponse({ id:'provider-1', slug:'alt', base_url:'https://api.alt.test', name:'Custom Chat', enable:true });
+  throw new Error(`Unexpected sync method ${init.method}`);
+};
+let sync = await syncManagedCustomProviders(syncEnv, chatConfig);
+assert(sync.ok && sync.results[0]?.action === 'created', 'Managed custom provider should be created when missing');
+assert(syncCalls[1].url.endsWith('/ai-gateway/custom-providers'), 'Custom provider create endpoint mismatch');
+assert(syncCalls[1].headers.authorization === 'Bearer cf-admin-token', 'Custom provider admin API must use its dedicated token');
+assert(syncCalls[1].body.base_url === 'https://api.alt.test' && syncCalls[1].body.slug === 'alt', 'Custom provider create body mismatch');
+
+const changedChatConfig = JSON.parse(JSON.stringify(chatConfig));
+changedChatConfig.profiles[0].baseUrl = 'https://new.alt.test';
+syncCalls.length = 0;
+globalThis.fetch = async (url, init = {}) => {
+  syncCalls.push({ url, method:init.method, headers:init.headers, body:init.body ? JSON.parse(init.body) : null });
+  if (init.method === 'GET') return cfResponse([{ id:'provider-1', slug:'alt', base_url:'https://api.alt.test', name:'Custom Chat', enable:true }]);
+  if (init.method === 'PATCH') return cfResponse({ id:'provider-1', slug:'alt', base_url:'https://new.alt.test', name:'Custom Chat', enable:true });
+  throw new Error(`Unexpected sync method ${init.method}`);
+};
+sync = await syncManagedCustomProviders(syncEnv, changedChatConfig);
+assert(sync.ok && sync.results[0]?.action === 'updated', 'Changed managed Base URL should update Cloudflare Custom Provider');
+assert(syncCalls[1].method === 'PATCH' && syncCalls[1].body.base_url === 'https://new.alt.test', 'Custom provider address update mismatch');
 
 const kv = new MockKv({ [PROVIDER_CONFIG_KEY]: JSON.stringify(cfConfig) });
 const adminEnv = {
@@ -114,25 +142,21 @@ assert(response.status === 200 && data.ok && data.config.cloudflare.gatewayId ==
 const stored = JSON.parse(await kv.get(PROVIDER_CONFIG_KEY));
 assert(stored.cloudflare.gatewayId === 'new-gateway', 'Published provider config must persist to KV');
 
-console.log('provider manager smoke tests passed (18 checks)');
+console.log('provider manager smoke tests passed (25 checks)');
 
 function context(method, body, cookieValue, env) {
   const headers = {};
   if (body != null) headers['content-type'] = 'application/json';
   if (cookieValue) headers.cookie = cookieValue;
-  return {
-    env,
-    request:new Request('https://example.test/api/providers', {
-      method, headers, body:body == null ? undefined : JSON.stringify(body),
-    }),
-  };
+  return { env, request:new Request('https://example.test/api/providers', { method, headers, body:body == null ? undefined : JSON.stringify(body) }) };
 }
-
+function cfResponse(result) {
+  return new Response(JSON.stringify({ success:true, result }), { status:200, headers:{'content-type':'application/json'} });
+}
 class MockKv {
   constructor(seed = {}) { this.map = new Map(Object.entries(seed)); }
   async get(key) { return this.map.has(key) ? this.map.get(key) : null; }
   async put(key, value) { this.map.set(key, String(value)); }
   async delete(key) { this.map.delete(key); }
 }
-
 function assert(condition, message) { if (!condition) throw new Error(message); }
