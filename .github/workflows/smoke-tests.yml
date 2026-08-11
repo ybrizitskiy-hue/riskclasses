@@ -1,0 +1,32 @@
+name: Risk Class smoke tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check routing.js
+          node --check functions/api/analyze.js
+          node --check functions/api/admin.js
+          node --check functions/api/_middleware.js
+          node --check functions/api/meta.js
+          node --check functions/lib/admin.js
+          node --check functions/lib/deterministic.js
+      - name: Routing regression smoke tests
+        run: node tests/routing-smoke.mjs
+      - name: Admin gate smoke tests
+        run: node tests/admin-gate-smoke.mjs
