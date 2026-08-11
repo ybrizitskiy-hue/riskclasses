@@ -26,6 +26,7 @@ jobs:
           node --check functions/lib/admin.js
           node --check functions/lib/ai-client.js
           node --check functions/lib/provider-config.js
+          node --check functions/lib/cloudflare-provider-admin.js
           node --check functions/lib/deterministic.js
           node --check functions/lib/rules-bundle.js
       - name: Routing regression
