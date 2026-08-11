@@ -37,3 +37,5 @@ jobs:
         run: node tests/rules-manager-smoke.mjs
       - name: Provider manager regression
         run: node tests/provider-manager-smoke.mjs
+      - name: Provider badge browser regression
+        run: node tests/provider-badge-browser-smoke.mjs
