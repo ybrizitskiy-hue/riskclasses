@@ -28,10 +28,13 @@ export async function callAiJson({
   const endpoint = profileEndpoint(config, profile, env);
   if (!endpoint) return { ok: false, status: 500, error: `Could not resolve endpoint for ${profile.label}.` };
   const headers = buildHeaders(env, config, profile);
-  const actualWeb = Boolean(useWeb && profile.capabilities?.webSearch && profile.protocol === 'responses');
+  const actualWeb = Boolean(useWeb && profile.capabilities?.webSearch);
+  const effectiveInput = actualWeb && profile.protocol === 'chat-completions'
+    ? withWebAvailablePrompt(input)
+    : input;
   const requestBody = profile.protocol === 'chat-completions'
-    ? buildChatRequest({ profile, reasoning, input, schema, schemaName })
-    : buildResponsesRequest({ profile, reasoning, input, schema, schemaName, actualWeb, promptCacheKey });
+    ? buildChatRequest({ profile, reasoning, input: effectiveInput, schema, schemaName, actualWeb })
+    : buildResponsesRequest({ profile, reasoning, input: effectiveInput, schema, schemaName, actualWeb, promptCacheKey });
 
   const fetchResult = await fetchWithRetries(endpoint, {
     method: 'POST',
@@ -54,6 +57,7 @@ export async function callAiJson({
     reasoning,
     stage,
     useWeb: actualWeb,
+    webSearchMode: actualWeb ? webSearchMode(profile) : 'disabled',
     endpoint,
     attempts: fetchResult.attempts,
   });
@@ -184,7 +188,7 @@ function buildResponsesRequest({ profile, reasoning, input, schema, schemaName, 
     body.prompt_cache_key = promptCacheKey;
     body.prompt_cache_retention = '24h';
   }
-  if (actualWeb) {
+  if (actualWeb && webSearchMode(profile) !== 'native') {
     body.tools = [{ type: 'web_search', search_context_size: 'low' }];
     body.tool_choice = 'auto';
     body.max_tool_calls = 3;
@@ -192,7 +196,7 @@ function buildResponsesRequest({ profile, reasoning, input, schema, schemaName, 
   return body;
 }
 
-function buildChatRequest({ profile, reasoning, input, schema, schemaName }) {
+function buildChatRequest({ profile, reasoning, input, schema, schemaName, actualWeb }) {
   const prepared = profile.capabilities?.jsonSchema ? input : appendSchemaPrompt(input, schema);
   const body = { model: profile.model, messages: toChatMessages(prepared) };
   if (profile.capabilities?.reasoning && reasoning) body.reasoning_effort = reasoning;
@@ -202,7 +206,53 @@ function buildChatRequest({ profile, reasoning, input, schema, schemaName }) {
       json_schema: { name: schemaName, strict: true, schema },
     };
   }
+  if (actualWeb) applyChatWebSearch(body, webSearchMode(profile));
   return body;
+}
+
+function applyChatWebSearch(body, mode) {
+  if (mode === 'chat-options') {
+    body.web_search_options = { search_context_size: 'low' };
+    return;
+  }
+  if (mode === 'openrouter-plugin') {
+    body.plugins = [{ id: 'web', max_results: 3 }];
+    return;
+  }
+  if (mode === 'native') return;
+  // Compatible gateways that expose a server-side OpenAI-style built-in tool
+  // through /chat/completions can opt into this shape.
+  body.tools = [{ type: 'web_search' }];
+  body.tool_choice = 'auto';
+}
+
+function webSearchMode(profile) {
+  const explicit = String(profile?.webSearchMode || '').trim();
+  if (explicit) return explicit;
+  return profile?.protocol === 'chat-completions' ? 'chat-tools' : 'responses';
+}
+
+function withWebAvailablePrompt(input) {
+  const cloned = JSON.parse(JSON.stringify(input || []));
+  const unavailable = 'No web-search tool is available in this stage. If the answer materially depends on a current external fact that is not established by the canonical rules, make the best cautious answer you can and set needsEscalation=true so a research-capable or stronger configured provider can review it.';
+  const available = 'A server-side web-search capability is available in this stage. Use it only when current facts such as tournament tier, tour, division, qualifier status, participant level or esports tier are genuinely needed. Do not browse merely to confirm an exact rule.';
+  let replaced = false;
+  for (const item of cloned) {
+    if (typeof item?.content === 'string' && item.content.includes(unavailable)) {
+      item.content = item.content.replace(unavailable, available);
+      replaced = true;
+      continue;
+    }
+    if (!Array.isArray(item?.content)) continue;
+    for (const part of item.content) {
+      if (typeof part?.text === 'string' && part.text.includes(unavailable)) {
+        part.text = part.text.replace(unavailable, available);
+        replaced = true;
+      }
+    }
+  }
+  if (!replaced) cloned.unshift({ role: 'developer', content: [{ type: 'input_text', text: available }] });
+  return cloned;
 }
 
 function appendSchemaPrompt(input, schema) {
@@ -278,7 +328,7 @@ function extractChatOutputText(response) {
   return '';
 }
 
-function callTelemetry(response, profile, { reasoning, stage, useWeb, endpoint, attempts = 1 }) {
+function callTelemetry(response, profile, { reasoning, stage, useWeb, webSearchMode: searchMode, endpoint, attempts = 1 }) {
   const usage = response?.usage || {};
   const inputTokens = Number(usage.input_tokens ?? usage.prompt_tokens ?? 0);
   const cachedInputTokens = Number(usage.input_tokens_details?.cached_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? 0);
@@ -305,6 +355,7 @@ function callTelemetry(response, profile, { reasoning, stage, useWeb, endpoint, 
     protocol: profile?.protocol || '',
     model: response?.model || profile?.model || '',
     reasoning,
+    webSearchMode: searchMode,
     attempts,
     retries: Math.max(0, Number(attempts || 1) - 1),
     inputTokens,
@@ -320,5 +371,13 @@ function callTelemetry(response, profile, { reasoning, stage, useWeb, endpoint, 
 function countWebSearchCalls(response) {
   let count = 0;
   for (const item of response?.output || []) if (item?.type === 'web_search_call') count += 1;
+  if (Array.isArray(response?.web_search_calls)) count += response.web_search_calls.length;
+  for (const choice of response?.choices || []) {
+    const message = choice?.message || {};
+    for (const call of message.tool_calls || []) {
+      if (call?.type === 'web_search' || call?.function?.name === 'web_search') count += 1;
+    }
+    if (!count && Array.isArray(message.annotations) && message.annotations.some((item) => item?.type === 'url_citation')) count = 1;
+  }
   return count;
 }
