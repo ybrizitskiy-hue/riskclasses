@@ -6,55 +6,74 @@ Cloudflare Pages application for internal sportsbook risk-class classification. 
 
 This repository is public, so the internal risk-class dataset is deliberately **not committed to GitHub**. The complete Custom GPT instructions + knowledge source are stored server-side in a Cloudflare KV value and are read only by the Pages Function.
 
-The OpenAI API key is also server-side only as the Pages secret `OPENAI_API_KEY`. It is never sent to the browser.
+The OpenAI API key is server-side only as the Pages secret `OPENAI_API_KEY`. It is never sent to the browser. Protect the production hostname with Cloudflare Access for RokkerX users.
 
-## Runtime behavior
+## Cost-optimized routing
 
-- Model: `gpt-5.6-terra` by default (`OPENAI_MODEL` may override it).
-- Reasoning effort: `medium`.
-- Same v2 Custom GPT instructions and full knowledge dataset at runtime.
-- Web search is available to the model but the prompt requires exact knowledge rules to be used before research.
-- Screenshot competition names must remain exactly as shown.
-- Multiple screenshots remove only obvious exact boundary-overlap duplicates.
-- All normal results include DAZN, Quinnbet and NTI.
-- Hard confidence contract:
-  - High -> Manual check No
-  - Medium -> Manual check Yes
-  - Low -> Manual check Yes
-  - Any `RC X rec.` cannot be High
-  - Any `Manual check / missing rule` forces Low
-- Tennis Virtuals / SRL / Simulated Reality: RC H for DAZN, Quinnbet and NTI while the not-offered operational exception remains active.
+The UI exposes three operating modes while keeping the same risk-class rules and confidence contract:
 
-The API also applies a server-side consistency guard after model output, and the browser applies the same guard again before rendering.
+- **Auto — recommended:** screenshots are read with GPT-5.6 Luna / Low. Exact deterministic rules are applied without a classification-model call. Unresolved rows go to GPT-5.6 Luna / Medium. Only rows where Luna says the underlying competition/base classification remains materially uncertain are escalated to GPT-5.6 Terra / Medium.
+- **Economy:** screenshots still use Luna / Low extraction and exact deterministic rules. All unresolved rows use Luna / Medium only; there is no Terra escalation.
+- **Quality:** screenshots use Luna / Low extraction and exact deterministic rules. All unresolved rows go directly to Terra / Medium.
+
+A missing brand-specific rule or an `RC X rec.` result by itself does **not** trigger Auto escalation. Those cases remain Medium/Yes or Low/Yes according to the approved Custom GPT contract.
+
+The server uses OpenAI prompt caching with a stable cache key and 24-hour retention for the large canonical rules prompt. Web search is available only on unresolved classification calls and is capped at three tool calls per model request. Screenshot extraction has no web-search tool.
+
+The response includes telemetry for:
+
+- deterministic row count;
+- AI-classified row count;
+- escalated row count;
+- models used;
+- input/cached/output/reasoning tokens;
+- web-search calls;
+- estimated USD cost based on the current Luna/Terra token rates and web-search call price.
+
+The first uncached prompt-cache write can cost more than the normal input rate, so telemetry also returns a cache-write ceiling estimate.
+
+## Deterministic exact-rule layer
+
+Only approved high-confidence patterns are resolved without classification AI. Current coverage includes high-volume cases such as:
+
+- Tennis ITF / World Tennis Tour main draw, qualification and doubles;
+- Tennis UTR / UTR PTT;
+- Challenger doubles;
+- Tennis SRL / Simulated Reality operational H/H/H exception;
+- Golf events whose category is explicit in the name (PGA Tour, DP World Tour, LIV, Golf Majors/Ryder Cup, Korn Ferry, LPGA, PGA Tour Champions) plus the approved Boeing Classic precedent;
+- WTT Feeder / WTT Star Contender / Singapore Smash RC D cases;
+- selected exact Badminton categories and Malaysia International;
+- MMA Contender Series;
+- exact matches from the canonical Football RC I list loaded from the private KV knowledge source.
+
+If a deterministic rule is not safe, the row is deliberately routed to Luna/Terra instead of being guessed.
+
+## Confidence contract
+
+The server and browser both enforce:
+
+- High -> Manual check No
+- Medium -> Manual check Yes
+- Low -> Manual check Yes
+- Any `RC X rec.` cannot be High
+- Any `Manual check / missing rule` forces Low
+
+Tennis Virtuals / SRL / Simulated Reality remain RC H for DAZN, Quinnbet and NTI while the not-offered operational exception is active.
 
 ## Cloudflare Pages setup
 
-This repository uses Pages Functions in `functions/`, so deploy through Cloudflare Pages Git integration.
+Deploy through Cloudflare Pages Git integration because the repository contains Pages Functions.
 
-### 1. OpenAI secret
-
-In the Pages project, add the encrypted secret:
+### Required secret
 
 `OPENAI_API_KEY`
 
-Optional variable:
-
-`OPENAI_MODEL=gpt-5.6-terra`
-
-If the API key is already configured on this same Pages project, keep the existing value. If it currently exists only on a separate Worker, add the same key to the Pages project secret because Pages Functions cannot read another Worker's secret automatically.
-
-### 2. Private rules KV
-
-Create a Workers KV namespace for the internal rules. In the Pages project add a KV binding:
+### Required KV binding
 
 - Variable name: `RISK_RULES`
-- Namespace: your private risk-rules KV namespace
+- KV key: `custom-gpt-v2`
 
-The Pages Function reads key:
-
-`custom-gpt-v2`
-
-The value must be JSON with this shape:
+The KV value must be JSON:
 
 ```json
 {
@@ -66,74 +85,57 @@ The value must be JSON with this shape:
 
 Do not commit that payload to this public repository.
 
-To build the payload locally from the approved v2 files:
+### Optional model overrides
 
-```bash
-node scripts/build-rules-payload.mjs /path/to/INSTRUCTIONS_ONLY.txt /path/to/RISK_CLASS_CUSTOM_GPT_SOURCE.md risk-rules-kv.json
-```
+No model environment variables are required. Defaults are already configured in code.
 
-Then upload it to the remote KV namespace with Wrangler, using your namespace ID:
+Optional overrides:
 
-```bash
-npx wrangler kv key put --namespace-id=YOUR_KV_NAMESPACE_ID "custom-gpt-v2" --path=./risk-rules-kv.json --remote
-```
+- `OPENAI_EXTRACT_MODEL` — default `gpt-5.6-luna`
+- `OPENAI_LUNA_MODEL` — default `gpt-5.6-luna`
+- `OPENAI_TERRA_MODEL` — default `gpt-5.6-terra`
 
-You can also create the KV namespace/binding and edit KV pairs in the Cloudflare dashboard.
+The old generic `OPENAI_MODEL` / `Model` variable is not used by the optimized router.
 
-After adding or changing a Pages binding, redeploy the Pages project.
-
-### 3. Cloudflare Access
-
-For internal team use, protect the Pages hostname with Cloudflare Access and allow only the intended company/team identities.
+After changing Pages secrets or bindings, redeploy the production deployment.
 
 ## Endpoints
 
 ### `GET /api/meta`
 
-Reports whether the Pages Function has both the OpenAI secret and the v2 rules payload configured. It never returns either secret or the rules content.
+Reports readiness and routing configuration without exposing the API key or private rules.
 
 ### `POST /api/analyze`
 
-Request:
+Example:
 
 ```json
 {
   "mode": "image",
+  "routingMode": "auto",
   "images": ["data:image/png;base64,..."],
   "text": ""
 }
 ```
 
-or:
+`routingMode` may be `auto`, `economy`, or `quality`.
 
-```json
-{
-  "mode": "text",
-  "images": [],
-  "text": "Sport\tCompetition\nTennis\tWT Bydgoszcz. Poland. Women Singles"
-}
-```
-
-Response rows contain:
+The normal result table remains:
 
 `Sport | Competition | DAZN | Quinnbet | NTI | Basis | Confidence | Sources | Manual check`
 
-## UI
+The response also contains `telemetry`.
 
-The current UI supports:
+## Regression test
 
-- drag-and-drop screenshots;
-- click-to-upload;
-- Ctrl/Cmd + V screenshot paste;
-- up to four screenshots per request;
-- pasted spreadsheet rows;
-- exact-name preservation instructions;
-- responsive results table;
-- confidence/manual-review indicators;
-- table copy;
-- CSV export;
-- API readiness indicator.
+With Node 18+:
+
+```bash
+node tests/routing-smoke.mjs
+```
+
+The smoke suite covers deterministic Tennis/Golf/Table Tennis/Badminton/MMA/Football rules, zero-model text routing, Luna Low image extraction, Economy Luna routing, Auto Terra escalation, Quality Terra routing, and the `rec. -> Medium/Yes` guard.
 
 ## Updating rules later
 
-Do not change the runtime behavior by editing random prompt fragments in code. Update the approved Custom GPT v2 source files, rebuild the KV payload, replace `custom-gpt-v2`, then run the same regression cases used for the Custom GPT.
+Update the approved Custom GPT source files, rebuild the KV payload, replace `custom-gpt-v2`, and run the same regression cases used for the Custom GPT. Do not weaken confidence/manual-check behavior in ad-hoc prompt fragments.
