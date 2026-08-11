@@ -22,20 +22,25 @@ jobs:
           node --check routing.js
           node --check rules-manager.js
           node --check provider-manager.js
+          node --check reasoning-manager.js
           node --check provider-badge.js
           node --check functions/api/analyze.js
           node --check functions/api/analyze-core.js
           node --check functions/api/admin.js
           node --check functions/api/providers.js
+          node --check functions/api/reasoning.js
           node --check functions/api/_middleware.js
           node --check functions/api/meta.js
           node --check functions/lib/admin.js
           node --check functions/lib/ai-client.js
           node --check functions/lib/provider-config.js
+          node --check functions/lib/reasoning-config.js
           node --check functions/lib/cloudflare-provider-admin.js
           node --check functions/lib/deterministic.js
           node --check tests/chat-web-search-smoke.mjs
           node --check tests/prompt-cache-key-smoke.mjs
+          node --check tests/reasoning-config-smoke.mjs
+          node --check tests/reasoning-routing-smoke.mjs
       - name: Routing regression smoke tests
         run: node tests/routing-smoke.mjs
       - name: Admin gate smoke tests
@@ -46,6 +51,10 @@ jobs:
         run: node tests/chat-web-search-smoke.mjs
       - name: Prompt cache key smoke tests
         run: node tests/prompt-cache-key-smoke.mjs
+      - name: Reasoning configuration smoke tests
+        run: node tests/reasoning-config-smoke.mjs
+      - name: Reasoning routing smoke tests
+        run: node tests/reasoning-routing-smoke.mjs
       - name: Provider badge browser smoke tests
         run: node tests/provider-badge-browser-smoke.mjs
       - name: Provider panel stability smoke tests

@@ -6,6 +6,7 @@ import {
   profileRuntimeStatus,
   validateProviderConfig,
 } from '../lib/provider-config.js';
+import { effortFor, loadReasoningConfig } from '../lib/reasoning-config.js';
 import { callAiJson } from '../lib/ai-client.js';
 
 const MAX_IMAGES = 4;
@@ -82,6 +83,7 @@ export async function onRequestPost(context) {
   if (!providerValidation.valid) {
     return json({ error: 'AI provider configuration is invalid. Open Admin → AI providers and fix the configuration.' }, 503);
   }
+  const reasoningConfig = await loadReasoningConfig(context.env);
 
   let body;
   try {
@@ -108,7 +110,15 @@ export async function onRequestPost(context) {
   if (mode === 'image') {
     const ready = profileRuntimeStatus(context.env, providerConfig, route.extraction);
     if (!ready.ready) return json({ error: `Extraction provider is not ready: ${ready.reason}` }, 503);
-    const extraction = await extractRowsFromImages(context.env, providerConfig, route.extraction, images, telemetryCalls);
+    const extraction = await extractRowsFromImages(
+      context.env,
+      providerConfig,
+      route.extraction,
+      images,
+      effortFor(reasoningConfig, routingMode, 'extraction'),
+      routingMode,
+      telemetryCalls,
+    );
     if (!extraction.ok) return json({ error: extraction.error }, extraction.status || 502);
     rows = extraction.result.rows || [];
     warnings.push(...(extraction.result.warnings || []));
@@ -148,7 +158,7 @@ export async function onRequestPost(context) {
       profile: route.primary,
       rows: unresolved,
       rules: rulesPayload,
-      reasoning: routingMode === 'quality' ? 'medium' : 'medium',
+      reasoning: effortFor(reasoningConfig, routingMode, 'primary'),
       stage: `${routingMode}-primary`,
       telemetryCalls,
     });
@@ -168,7 +178,7 @@ export async function onRequestPost(context) {
           profile: route.research,
           rows: pending,
           rules: rulesPayload,
-          reasoning: 'medium',
+          reasoning: effortFor(reasoningConfig, routingMode, 'research'),
           stage: `${routingMode}-research`,
           telemetryCalls,
         });
@@ -194,7 +204,7 @@ export async function onRequestPost(context) {
           profile: route.escalation,
           rows: pending,
           rules: rulesPayload,
-          reasoning: 'medium',
+          reasoning: effortFor(reasoningConfig, routingMode, 'escalation'),
           stage: `${routingMode}-escalation`,
           telemetryCalls,
         });
@@ -242,6 +252,7 @@ export async function onRequestPost(context) {
     researchCount,
     escalatedCount,
     providerConfigVersion: providerConfig.version,
+    reasoningConfigVersion: reasoningConfig.version,
   });
 
   return json({
@@ -250,6 +261,7 @@ export async function onRequestPost(context) {
     telemetry,
     rulesVersion: rulesPayload.version,
     providerConfigVersion: providerConfig.version,
+    reasoningConfigVersion: reasoningConfig.version,
   }, 200, { 'cache-control': 'no-store' });
 }
 
@@ -257,7 +269,7 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: corsHeaders() });
 }
 
-async function extractRowsFromImages(env, providerConfig, profile, images, telemetryCalls) {
+async function extractRowsFromImages(env, providerConfig, profile, images, reasoning, routingMode, telemetryCalls) {
   const input = [
     {
       role: 'developer',
@@ -279,8 +291,8 @@ async function extractRowsFromImages(env, providerConfig, profile, images, telem
     env,
     config: providerConfig,
     profile,
-    reasoning: 'low',
-    stage: 'extract',
+    reasoning,
+    stage: `${routingMode}-extraction`,
     input,
     schema: EXTRACTION_SCHEMA,
     schemaName: 'risk_class_row_extraction',
@@ -408,12 +420,13 @@ function isKnownSport(value) {
   ]).has(normalizeHeader(value));
 }
 
-function summarizeTelemetry({ routingMode, calls, totalRows, deterministicCount, unresolvedCount, researchCount, escalatedCount, providerConfigVersion }) {
+function summarizeTelemetry({ routingMode, calls, totalRows, deterministicCount, unresolvedCount, researchCount, escalatedCount, providerConfigVersion, reasoningConfigVersion }) {
   const priced = calls.every((call) => call.estimatedUsd != null && Number.isFinite(Number(call.estimatedUsd)));
   const estimatedUsd = priced ? calls.reduce((sum, call) => sum + Number(call.estimatedUsd || 0), 0) : null;
   return {
     routingMode,
     providerConfigVersion,
+    reasoningConfigVersion,
     totalRows,
     deterministicCount,
     aiRows: unresolvedCount,
