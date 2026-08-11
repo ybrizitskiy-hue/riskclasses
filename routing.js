@@ -18,14 +18,19 @@
     },
   };
 
-  let mode = localStorage.getItem(STORAGE_KEY);
-  if (!MODES[mode]) mode = 'auto';
+  const savedMode = localStorage.getItem(STORAGE_KEY);
+  let mode = MODES[savedMode] ? savedMode : 'auto';
   let lastTelemetry = null;
+  let admin = false;
+  let adminConfigured = false;
+  let adminChecked = false;
 
   injectStylesheet();
   injectRoutingControl();
-  updateModeUi();
+  injectAdminUi();
   patchFetch();
+  updateAdminUi();
+  checkAdmin();
 
   function injectStylesheet() {
     if (document.querySelector('link[href="/routing.css"]')) return;
@@ -42,10 +47,11 @@
 
     const control = document.createElement('div');
     control.id = 'routingControl';
-    control.className = 'routing-control';
+    control.className = 'routing-control admin-gated';
+    control.hidden = true;
     control.innerHTML = `
       <div class="routing-copy">
-        <span class="routing-label">AI routing</span>
+        <span class="routing-label">AI routing · admin</span>
         <span id="routingDescription" class="routing-description"></span>
       </div>
       <div class="routing-segmented" role="radiogroup" aria-label="AI routing mode">
@@ -58,6 +64,7 @@
     footer.parentNode.insertBefore(control, footer);
     control.querySelectorAll('.routing-btn').forEach((button) => {
       button.addEventListener('click', () => {
+        if (!admin) return openAdminModal();
         mode = button.dataset.routing;
         localStorage.setItem(STORAGE_KEY, mode);
         updateModeUi();
@@ -70,17 +77,199 @@
     }
   }
 
+  function injectAdminUi() {
+    const statusCluster = document.querySelector('.status-cluster');
+    if (statusCluster && !document.getElementById('adminUnlockBtn')) {
+      const button = document.createElement('button');
+      button.id = 'adminUnlockBtn';
+      button.type = 'button';
+      button.className = 'admin-unlock-btn';
+      button.disabled = true;
+      button.addEventListener('click', openAdminModal);
+      statusCluster.appendChild(button);
+    }
+
+    if (document.getElementById('adminModal')) return;
+    const overlay = document.createElement('div');
+    overlay.id = 'adminModal';
+    overlay.className = 'admin-modal-backdrop';
+    overlay.hidden = true;
+    overlay.innerHTML = `
+      <div class="admin-modal" role="dialog" aria-modal="true" aria-labelledby="adminModalTitle">
+        <button id="adminModalClose" type="button" class="admin-modal-close" aria-label="Close">×</button>
+        <span class="admin-modal-kicker">Admin controls</span>
+        <h3 id="adminModalTitle">Unlock routing & cost</h3>
+        <p id="adminModalCopy">Enter the admin PIN to change AI routing modes and view cost telemetry.</p>
+        <form id="adminPinForm" autocomplete="off">
+          <label for="adminPinInput">PIN</label>
+          <input id="adminPinInput" type="password" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="••••" />
+          <div id="adminPinError" class="admin-pin-error" aria-live="polite"></div>
+          <div class="admin-modal-actions">
+            <button id="adminCancelBtn" type="button" class="btn ghost small">Cancel</button>
+            <button id="adminSubmitBtn" type="submit" class="btn primary small">Unlock</button>
+          </div>
+        </form>
+        <div id="adminUnlockedActions" class="admin-unlocked-actions" hidden>
+          <div class="admin-unlocked-state"><span></span>Admin controls are unlocked for this browser session.</div>
+          <div class="admin-modal-actions">
+            <button id="adminDoneBtn" type="button" class="btn ghost small">Done</button>
+            <button id="adminLockBtn" type="button" class="btn danger small">Lock admin</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) closeAdminModal();
+    });
+    document.getElementById('adminModalClose').addEventListener('click', closeAdminModal);
+    document.getElementById('adminCancelBtn').addEventListener('click', closeAdminModal);
+    document.getElementById('adminDoneBtn').addEventListener('click', closeAdminModal);
+    document.getElementById('adminLockBtn').addEventListener('click', lockAdmin);
+    document.getElementById('adminPinForm').addEventListener('submit', unlockAdmin);
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !overlay.hidden) closeAdminModal();
+    });
+  }
+
+  async function checkAdmin() {
+    try {
+      const response = await fetch('/api/admin', { cache: 'no-store' });
+      const data = await response.json().catch(() => ({}));
+      adminConfigured = Boolean(data.configured);
+      admin = Boolean(response.ok && data.admin);
+    } catch {
+      adminConfigured = false;
+      admin = false;
+    } finally {
+      adminChecked = true;
+      if (!admin) mode = 'auto';
+      updateAdminUi();
+    }
+  }
+
+  function updateAdminUi() {
+    const button = document.getElementById('adminUnlockBtn');
+    const control = document.getElementById('routingControl');
+    if (button) {
+      button.disabled = !adminChecked;
+      button.classList.toggle('unlocked', admin);
+      button.innerHTML = admin
+        ? '<span class="admin-lock-icon">◆</span> Admin unlocked'
+        : '<span class="admin-lock-icon">◇</span> Admin';
+      button.title = admin
+        ? 'Routing mode and cost telemetry are unlocked'
+        : 'Enter admin PIN to access routing mode and cost telemetry';
+    }
+    if (control) control.hidden = !admin;
+    if (!admin) removeTelemetry();
+    updateModeUi();
+  }
+
   function updateModeUi() {
-    const config = MODES[mode];
+    const effectiveMode = admin ? mode : 'auto';
+    const config = MODES[effectiveMode];
     document.querySelectorAll('.routing-btn').forEach((button) => {
-      const active = button.dataset.routing === mode;
+      const active = button.dataset.routing === effectiveMode;
       button.classList.toggle('active', active);
       button.setAttribute('aria-checked', active ? 'true' : 'false');
     });
     const description = document.getElementById('routingDescription');
     if (description) description.textContent = config.description;
     const pill = document.getElementById('routingModelPill') || document.querySelector('.model-pill');
-    if (pill) pill.textContent = config.badge;
+    if (pill) pill.textContent = admin ? config.badge : 'Auto · optimized';
+  }
+
+  function openAdminModal() {
+    const modal = document.getElementById('adminModal');
+    if (!modal) return;
+    const form = document.getElementById('adminPinForm');
+    const unlocked = document.getElementById('adminUnlockedActions');
+    const copy = document.getElementById('adminModalCopy');
+    const title = document.getElementById('adminModalTitle');
+    const error = document.getElementById('adminPinError');
+    error.textContent = '';
+
+    if (admin) {
+      title.textContent = 'Admin controls unlocked';
+      copy.textContent = 'You can change AI routing modes and view request cost telemetry.';
+      form.hidden = true;
+      unlocked.hidden = false;
+    } else {
+      title.textContent = 'Unlock routing & cost';
+      copy.textContent = adminConfigured
+        ? 'Enter the admin PIN to change AI routing modes and view cost telemetry.'
+        : 'Admin PIN is not configured yet. Add the RISK_ADMIN_PIN secret in Cloudflare and redeploy.';
+      form.hidden = false;
+      unlocked.hidden = true;
+      const input = document.getElementById('adminPinInput');
+      input.value = '';
+      input.disabled = !adminConfigured;
+      document.getElementById('adminSubmitBtn').disabled = !adminConfigured;
+      setTimeout(() => { if (adminConfigured) input.focus(); }, 30);
+    }
+    modal.hidden = false;
+    document.body.classList.add('admin-modal-open');
+  }
+
+  function closeAdminModal() {
+    const modal = document.getElementById('adminModal');
+    if (modal) modal.hidden = true;
+    document.body.classList.remove('admin-modal-open');
+  }
+
+  async function unlockAdmin(event) {
+    event.preventDefault();
+    const input = document.getElementById('adminPinInput');
+    const submit = document.getElementById('adminSubmitBtn');
+    const error = document.getElementById('adminPinError');
+    const pin = input.value.trim();
+    if (!pin) {
+      error.textContent = 'Enter the PIN.';
+      return;
+    }
+
+    submit.disabled = true;
+    submit.textContent = 'Unlocking…';
+    error.textContent = '';
+    try {
+      const response = await fetch('/api/admin', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ pin }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.admin) throw new Error(data.error || 'Could not unlock admin controls.');
+      admin = true;
+      adminConfigured = true;
+      const stored = localStorage.getItem(STORAGE_KEY);
+      mode = MODES[stored] ? stored : 'auto';
+      updateAdminUi();
+      closeAdminModal();
+    } catch (unlockError) {
+      error.textContent = unlockError.message || 'Incorrect PIN.';
+      input.select();
+    } finally {
+      submit.disabled = false;
+      submit.textContent = 'Unlock';
+    }
+  }
+
+  async function lockAdmin() {
+    const button = document.getElementById('adminLockBtn');
+    button.disabled = true;
+    try {
+      await fetch('/api/admin', { method: 'DELETE' });
+    } catch {
+      // Lock locally even if the request fails; the cookie will expire server-side.
+    }
+    admin = false;
+    mode = 'auto';
+    lastTelemetry = null;
+    updateAdminUi();
+    closeAdminModal();
+    button.disabled = false;
   }
 
   function patchFetch() {
@@ -92,7 +281,7 @@
       if (/\/api\/analyze(?:\?|$)/.test(url) && String(init.method || 'GET').toUpperCase() === 'POST' && typeof init.body === 'string') {
         try {
           const parsed = JSON.parse(init.body);
-          parsed.routingMode = mode;
+          parsed.routingMode = admin ? mode : 'auto';
           nextInit = { ...init, body: JSON.stringify(parsed) };
         } catch (_) {
           // Keep original request if the body is not JSON.
@@ -102,9 +291,12 @@
       const response = await nativeFetch(input, nextInit);
       if (/\/api\/analyze(?:\?|$)/.test(url)) {
         response.clone().json().then((payload) => {
-          if (payload?.telemetry) {
+          if (admin && payload?.telemetry) {
             lastTelemetry = payload.telemetry;
             renderTelemetry(lastTelemetry);
+          } else {
+            lastTelemetry = null;
+            removeTelemetry();
           }
         }).catch(() => {});
       }
@@ -113,6 +305,7 @@
   }
 
   function renderTelemetry(telemetry) {
+    if (!admin) return removeTelemetry();
     const resultsCard = document.getElementById('resultsCard');
     const summaryStrip = document.getElementById('summaryStrip');
     if (!resultsCard || !summaryStrip) return;
@@ -136,7 +329,7 @@
 
     panel.innerHTML = `
       <div class="telemetry-main">
-        <span class="telemetry-kicker">Cost routing</span>
+        <span class="telemetry-kicker">Cost routing · admin</span>
         <strong>${escapeHtml(capitalize(telemetry.routingMode || mode))}</strong>
         <span>${telemetry.deterministicCount || 0}/${telemetry.totalRows || 0} rows resolved without classification AI</span>
       </div>
@@ -148,6 +341,10 @@
         <span title="Approximate OpenAI token + web-search cost. First uncached cache write can be slightly higher."><small>Est. cost</small><strong>${formatUsd(estimated)}${ceiling > estimated * 1.02 ? `–${formatUsd(ceiling)}` : ''}</strong></span>
       </div>
     `;
+  }
+
+  function removeTelemetry() {
+    document.getElementById('routingTelemetry')?.remove();
   }
 
   function shortModel(value) {
@@ -177,7 +374,9 @@
   }
 
   window.RISK_ROUTING = {
-    get mode() { return mode; },
-    get telemetry() { return lastTelemetry; },
+    get mode() { return admin ? mode : 'auto'; },
+    get admin() { return admin; },
+    get telemetry() { return admin ? lastTelemetry : null; },
+    unlock: openAdminModal,
   };
 })();
