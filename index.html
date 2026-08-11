@@ -3,61 +3,161 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Competition Risk Classifier</title>
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#0a0d12" />
+  <title>Risk Class Analyst</title>
+  <meta name="description" content="Internal DAZN / Quinnbet / NTI sportsbook competition risk-class analyst." />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <main class="shell">
-    <section class="hero compact-hero">
-      <div>
-        <p class="eyebrow">Internal tool</p>
-        <h1>Competition Risk Classifier</h1>
-        <p class="subhead">Paste rows from Excel. The tool automatically finds the <strong>Sport</strong> and <strong>Competition</strong> columns, even inside full exports with extra columns.</p>
-      </div>
-    </section>
+  <div class="ambient ambient-a"></div>
+  <div class="ambient ambient-b"></div>
 
-    <section class="panel input-panel">
-      <form id="classifyForm">
-        <label class="paste-label">
-          Paste rows from Excel
-          <textarea id="bulkInput" name="bulkInput" rows="10" placeholder="TRS ID&#9;Sport&#9;Competition&#9;Competition ID&#9;Event&#9;Event ID&#9;Risk Class&#9;Update Date Time&#10;global&#9;Golf&#9;Interwetten Open 2026 - Men&#9;U-29771&#9;&#9;&#9;N&#9;6/10/2026 12:26:36 PM&#10;global&#9;Football&#9;Peru League Cup - Peru&#9;BG-29773&#9;&#9;&#9;N&#9;6/10/2026 6:07:51 PM&#10;global&#9;Ice Hockey&#9;PWHL Draft - USA&#9;U-29772&#9;&#9;&#9;N&#9;6/10/2026 4:12:38 PM&#10;global&#9;Tennis&#9;UTR PTT Rome GA Women 01 - UTR Women&#9;U-29774&#9;&#9;&#9;N&#9;6/10/2026 7:12:45 PM"></textarea>
-        </label>
-        <div class="form-actions">
-          <button type="submit" id="submitBtn">Classify pasted rows</button>
-          <button type="button" class="secondary" id="clearBtn">Clear</button>
-        </div>
-        <p class="hint">You can paste 1 row or many rows. Supported formats: simple <code>Sport + Competition</code>, or full exports with columns like <code>TRS ID, Sport, Competition, Competition ID...</code>.</p>
-      </form>
-    </section>
-
-    <section id="resultPanel" class="panel result-panel hidden" aria-live="polite">
-      <div class="result-header-row">
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true">RC</div>
         <div>
-          <p class="eyebrow">Results</p>
-          <h2 id="resultTitle">—</h2>
+          <div class="brand-title">Risk Class Analyst</div>
+          <div class="brand-subtitle">DAZN · Quinnbet · NTI</div>
         </div>
-        <button type="button" class="secondary small" id="copyResultsBtn">Copy results</button>
       </div>
-      <div class="table-wrap">
-        <table id="resultsTable">
+      <div class="status-cluster">
+        <span id="apiStatus" class="status-pill pending"><span class="status-dot"></span>Checking API</span>
+        <span class="model-pill">GPT-5.6 Terra · Medium</span>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div class="hero-copy">
+        <span class="kicker">Internal risk operations</span>
+        <h1>Drop a screenshot.<br><span>Get risk classes.</span></h1>
+        <p>Uses the same approved rules, brand mappings, confidence thresholds, and review behavior as the production Custom GPT.</p>
+      </div>
+      <div class="hero-proof" aria-label="Workflow">
+        <div class="proof-step"><span>01</span><strong>Read exact rows</strong><small>Names stay exactly as shown</small></div>
+        <div class="proof-line"></div>
+        <div class="proof-step"><span>02</span><strong>Apply guide</strong><small>Exact rules before research</small></div>
+        <div class="proof-line"></div>
+        <div class="proof-step"><span>03</span><strong>Research only if needed</strong><small>Medium / Low cases</small></div>
+      </div>
+    </section>
+
+    <section class="workspace-grid">
+      <section class="card composer-card">
+        <div class="card-head">
+          <div>
+            <span class="section-label">Input</span>
+            <h2>Competition list</h2>
+          </div>
+          <div class="segmented" role="tablist" aria-label="Input type">
+            <button type="button" class="segmented-btn active" data-mode="image" role="tab" aria-selected="true">Screenshot</button>
+            <button type="button" class="segmented-btn" data-mode="text" role="tab" aria-selected="false">Paste rows</button>
+          </div>
+        </div>
+
+        <div id="imageMode" class="input-mode active">
+          <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden />
+          <button id="dropZone" type="button" class="drop-zone">
+            <div class="drop-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="none"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14.5v3A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5v-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <strong>Drop screenshots here</strong>
+            <span>or click to choose files · you can also paste with Ctrl/Cmd + V</span>
+            <small>PNG, JPG or WebP · up to 4 screenshots</small>
+          </button>
+          <div id="previewGrid" class="preview-grid hidden"></div>
+        </div>
+
+        <div id="textMode" class="input-mode">
+          <textarea id="bulkInput" spellcheck="false" placeholder="Sport&#9;Competition&#10;Tennis&#9;WT Bydgoszcz. Poland. Women Singles&#10;Cricket&#9;T20 Tier B Tournament - Sri Lanka"></textarea>
+          <p class="input-hint">Paste simple Sport + Competition rows or a full spreadsheet export. Competition names are preserved as entered.</p>
+        </div>
+
+        <div class="composer-footer">
+          <div class="assumption"><span class="info-dot">i</span> Match markets are assumed unless the input clearly says outright / winner.</div>
+          <div class="action-row">
+            <button id="clearBtn" type="button" class="btn ghost">Clear</button>
+            <button id="analyzeBtn" type="button" class="btn primary" disabled>
+              <span class="btn-label">Analyze risk classes</span>
+              <span class="btn-spinner" aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="card rules-card">
+        <div class="card-head compact">
+          <div>
+            <span class="section-label">Decision policy</span>
+            <h2>Operational thresholds</h2>
+          </div>
+        </div>
+        <div class="threshold-stack">
+          <div class="threshold-row high"><span class="threshold-dot"></span><div><strong>High</strong><p>All three brand answers confirmed.</p></div><span class="review-no">No check</span></div>
+          <div class="threshold-row medium"><span class="threshold-dot"></span><div><strong>Medium</strong><p>Recommendation or researched analogy.</p></div><span class="review-yes">Check</span></div>
+          <div class="threshold-row low"><span class="threshold-dot"></span><div><strong>Low</strong><p>Material uncertainty or missing rule.</p></div><span class="review-yes">Check</span></div>
+        </div>
+        <div class="rules-divider"></div>
+        <ul class="rules-list">
+          <li><span>✓</span> Always returns DAZN, Quinnbet and NTI</li>
+          <li><span>✓</span> Blank brand cell ≠ Same as Global</li>
+          <li><span>✓</span> Any <code>rec.</code> can never be High</li>
+          <li><span>✓</span> Tennis SRL / Simulated Reality = H / H / H</li>
+          <li><span>✓</span> Football RC I list checked before analogy</li>
+        </ul>
+      </aside>
+    </section>
+
+    <section id="progressCard" class="card progress-card hidden" aria-live="polite">
+      <div class="progress-top"><span id="progressLabel">Reading input…</span><span id="progressElapsed">0s</span></div>
+      <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+      <div class="progress-stages">
+        <span class="active">Extract rows</span><span>Apply rules</span><span>Research uncertain</span><span>Validate</span>
+      </div>
+    </section>
+
+    <section id="resultsCard" class="card results-card hidden" aria-live="polite">
+      <div class="results-head">
+        <div>
+          <span class="section-label">Results</span>
+          <div class="results-title-row"><h2 id="resultTitle">Risk classes</h2><span id="resultCount" class="count-pill">0 rows</span></div>
+        </div>
+        <div class="result-actions">
+          <button id="copyBtn" type="button" class="btn ghost small">Copy table</button>
+          <button id="csvBtn" type="button" class="btn ghost small">Export CSV</button>
+        </div>
+      </div>
+
+      <div id="summaryStrip" class="summary-strip"></div>
+
+      <div class="table-shell">
+        <table>
           <thead>
             <tr>
-              <th>#</th>
               <th>Sport</th>
               <th>Competition</th>
-              <th>Risk class</th>
+              <th>DAZN</th>
+              <th>Quinnbet</th>
+              <th>NTI</th>
+              <th>Basis</th>
               <th>Confidence</th>
-              <th>Manual review</th>
-              <th>Explanation</th>
+              <th>Sources</th>
+              <th>Manual check</th>
             </tr>
           </thead>
           <tbody id="resultsBody"></tbody>
         </table>
       </div>
+      <div id="warnings" class="warnings hidden"></div>
     </section>
+
+    <footer>
+      <span>Internal use only</span>
+      <span>API key remains server-side in Cloudflare</span>
+    </footer>
   </main>
 
-  <script src="/config.js"></script>
   <script src="/app.js" type="module"></script>
 </body>
 </html>
