@@ -32,6 +32,7 @@ jobs:
           node --check functions/lib/admin.js
           node --check functions/lib/ai-client.js
           node --check functions/lib/provider-config.js
+          node --check functions/lib/cloudflare-provider-admin.js
           node --check functions/lib/deterministic.js
       - name: Routing regression smoke tests
         run: node tests/routing-smoke.mjs
