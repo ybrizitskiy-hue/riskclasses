@@ -3,6 +3,7 @@ export const PROVIDER_SCHEMA_VERSION = 1;
 
 const TRANSPORTS = new Set(['openai-direct', 'cloudflare-rest', 'cloudflare-provider']);
 const PROTOCOLS = new Set(['responses', 'chat-completions']);
+const WEB_SEARCH_MODES = new Set(['responses', 'chat-tools', 'chat-options', 'openrouter-plugin', 'native']);
 const PROFILE_ID_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
 const PROVIDER_SLUG_RE = /^(?:custom-)?[a-z0-9][a-z0-9-]{0,62}$/;
 const ALIAS_RE = /^[a-zA-Z0-9._-]{1,64}$/;
@@ -42,6 +43,7 @@ function openAiProfile(id, label, model, pricing) {
     baseUrl: '',
     pathPrefix: '',
     byokAlias: '',
+    webSearchMode: 'responses',
     capabilities: { vision: true, jsonSchema: true, reasoning: true, webSearch: true, promptCache: true, store: true },
     pricing: normalizePricing(pricing),
   };
@@ -88,7 +90,11 @@ export async function saveProviderConfig(env, value) {
 export function migrateProviderConfig(value) {
   const source = JSON.parse(JSON.stringify(value || {}));
   if (Array.isArray(source.profiles)) {
-    source.profiles = source.profiles.map((profile) => ({ baseUrl: '', ...profile }));
+    source.profiles = source.profiles.map((profile) => ({
+      baseUrl: '',
+      ...profile,
+      webSearchMode: profile?.webSearchMode || defaultWebSearchMode(profile?.protocol),
+    }));
   }
   return source;
 }
@@ -139,6 +145,14 @@ export function validateProviderConfig(value, env = {}) {
     const caps = profile.capabilities || {};
     for (const key of ['vision','jsonSchema','reasoning','webSearch','promptCache','store']) {
       if (typeof caps[key] !== 'boolean') errors.push(`Profile ${id} capability ${key} must be true or false.`);
+    }
+    const webSearchMode = String(profile.webSearchMode || defaultWebSearchMode(profile.protocol));
+    if (caps.webSearch && !WEB_SEARCH_MODES.has(webSearchMode)) errors.push(`Profile ${id} has unsupported web search adapter "${webSearchMode}".`);
+    if (caps.webSearch && profile.protocol === 'responses' && ['chat-tools','chat-options','openrouter-plugin'].includes(webSearchMode)) {
+      errors.push(`Profile ${id}: ${webSearchMode} is a Chat Completions web-search adapter, but the profile protocol is Responses.`);
+    }
+    if (caps.webSearch && profile.protocol === 'chat-completions' && webSearchMode === 'responses') {
+      errors.push(`Profile ${id}: Responses web_search cannot be used with Chat Completions. Choose Chat built-in tool, Chat web_search_options, OpenRouter plugin, or Provider-native.`);
     }
     if (!caps.jsonSchema) warnings.push(`Profile ${id}: JSON Schema is disabled, so the server will rely on prompt-only JSON output and strict parsing.`);
     validatePricing(profile.pricing, id, errors);
@@ -192,6 +206,7 @@ export function normalizeProviderConfig(value, env = {}) {
     baseUrl: normalizeBaseUrl(profile.baseUrl),
     pathPrefix: String(profile.pathPrefix || '').trim().replace(/^\/+|\/+$/g, ''),
     byokAlias: String(profile.byokAlias || '').trim(),
+    webSearchMode: String(profile.webSearchMode || defaultWebSearchMode(profile.protocol)),
     capabilities: {
       vision: Boolean(profile.capabilities?.vision),
       jsonSchema: Boolean(profile.capabilities?.jsonSchema),
@@ -271,6 +286,10 @@ export function isManagedCustomProfile(profile) {
 export function customProviderSlug(profile) {
   const raw = String(profile?.providerSlug || '').trim();
   return raw.startsWith('custom-') ? raw.slice(7) : raw;
+}
+
+function defaultWebSearchMode(protocol) {
+  return protocol === 'chat-completions' ? 'chat-tools' : 'responses';
 }
 
 function validateHttpsBaseUrl(value) {
