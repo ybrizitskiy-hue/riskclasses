@@ -2,8 +2,6 @@ import { isAdminRequest } from '../lib/admin.js';
 import {
   loadProviderConfig,
   normalizeProviderConfig,
-  profileMap,
-  publicProfileStatus as unusedPublicProfileStatus,
   saveProviderConfig,
   validateProviderConfig,
 } from '../lib/provider-config.js';
