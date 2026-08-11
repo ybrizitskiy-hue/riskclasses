@@ -13,6 +13,13 @@ if (!globalThis.crypto) globalThis.crypto = webcrypto;
 if (!globalThis.btoa) globalThis.btoa = (value) => Buffer.from(value, 'binary').toString('base64');
 if (!globalThis.atob) globalThis.atob = (value) => Buffer.from(value, 'base64').toString('binary');
 
+class MockKv {
+  constructor(seed = {}) { this.map = new Map(Object.entries(seed)); }
+  async get(key) { return this.map.has(key) ? this.map.get(key) : null; }
+  async put(key, value) { this.map.set(key, String(value)); }
+  async delete(key) { this.map.delete(key); }
+}
+
 const schema = {
   type: 'object', additionalProperties: false, required: ['status'],
   properties: { status: { type: 'string' } },
@@ -152,11 +159,5 @@ function context(method, body, cookieValue, env) {
 }
 function cfResponse(result) {
   return new Response(JSON.stringify({ success:true, result }), { status:200, headers:{'content-type':'application/json'} });
-}
-class MockKv {
-  constructor(seed = {}) { this.map = new Map(Object.entries(seed)); }
-  async get(key) { return this.map.has(key) ? this.map.get(key) : null; }
-  async put(key, value) { this.map.set(key, String(value)); }
-  async delete(key) { this.map.delete(key); }
 }
 function assert(condition, message) { if (!condition) throw new Error(message); }
