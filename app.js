@@ -1,265 +1,330 @@
-const form = document.getElementById('classifyForm');
-const submitBtn = document.getElementById('submitBtn');
-const clearBtn = document.getElementById('clearBtn');
-const resultPanel = document.getElementById('resultPanel');
-const bulkInput = document.getElementById('bulkInput');
-const resultTitle = document.getElementById('resultTitle');
-const resultsBody = document.getElementById('resultsBody');
-const copyResultsBtn = document.getElementById('copyResultsBtn');
+const state = {
+  mode: 'image',
+  files: [],
+  results: [],
+  warnings: [],
+  busy: false,
+  progressTimer: null,
+  startedAt: 0,
+};
 
-const API_SETTINGS_KEY = 'riskClassifierApiBaseUrl';
-let lastResults = [];
+const els = {
+  apiStatus: document.getElementById('apiStatus'),
+  imageMode: document.getElementById('imageMode'),
+  textMode: document.getElementById('textMode'),
+  fileInput: document.getElementById('fileInput'),
+  dropZone: document.getElementById('dropZone'),
+  previewGrid: document.getElementById('previewGrid'),
+  bulkInput: document.getElementById('bulkInput'),
+  analyzeBtn: document.getElementById('analyzeBtn'),
+  clearBtn: document.getElementById('clearBtn'),
+  progressCard: document.getElementById('progressCard'),
+  progressLabel: document.getElementById('progressLabel'),
+  progressElapsed: document.getElementById('progressElapsed'),
+  progressBar: document.getElementById('progressBar'),
+  resultsCard: document.getElementById('resultsCard'),
+  resultCount: document.getElementById('resultCount'),
+  resultsBody: document.getElementById('resultsBody'),
+  summaryStrip: document.getElementById('summaryStrip'),
+  warnings: document.getElementById('warnings'),
+  copyBtn: document.getElementById('copyBtn'),
+  csvBtn: document.getElementById('csvBtn'),
+};
 
-function cleanApiBase(value) {
-  return String(value || '').trim().replace(/\/$/, '');
-}
-
-function getApiBase() {
-  const saved = cleanApiBase(localStorage.getItem(API_SETTINGS_KEY));
-  const configured = cleanApiBase(window.RISK_CLASSIFIER_API_URL || '');
-  return saved || configured;
-}
-
-async function apiFetch(path, options = {}) {
-  const base = getApiBase();
-  const url = base ? `${base}${path}` : path;
-  return fetch(url, options);
-}
+const MAX_FILES = 4;
+const MAX_FILE_BYTES = 15 * 1024 * 1024;
 
 function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+  }[ch]));
 }
 
-function showApiUrlHelper(message) {
-  const panel = document.createElement('div');
-  panel.className = 'api-helper panel';
-  panel.innerHTML = `
-    <h2>Connect the website to your Worker</h2>
-    <p>${escapeHtml(message || 'Paste your Cloudflare Worker URL below. This is saved only in this browser. For permanent setup, paste the same URL into config.js in GitHub.')}</p>
-    <label>Worker API URL
-      <input id="apiBaseUrlInput" placeholder="https://risk-classifier-api.YOUR-SUBDOMAIN.workers.dev" value="${escapeHtml(getApiBase())}" />
-    </label>
-    <button type="button" id="saveApiBaseUrl">Save API URL</button>
-  `;
-  const existing = document.querySelector('.api-helper');
-  if (existing) existing.remove();
-  document.querySelector('.shell').prepend(panel);
-  document.getElementById('saveApiBaseUrl').addEventListener('click', () => {
-    const value = cleanApiBase(document.getElementById('apiBaseUrlInput').value);
-    if (value) localStorage.setItem(API_SETTINGS_KEY, value);
-    else localStorage.removeItem(API_SETTINGS_KEY);
-    window.location.reload();
+function updateAnalyzeState() {
+  const hasInput = state.mode === 'image' ? state.files.length > 0 : els.bulkInput.value.trim().length > 0;
+  els.analyzeBtn.disabled = state.busy || !hasInput;
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  document.querySelectorAll('.segmented-btn').forEach((btn) => {
+    const active = btn.dataset.mode === mode;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  els.imageMode.classList.toggle('active', mode === 'image');
+  els.textMode.classList.toggle('active', mode === 'text');
+  updateAnalyzeState();
+}
+
+document.querySelectorAll('.segmented-btn').forEach((btn) => btn.addEventListener('click', () => setMode(btn.dataset.mode)));
+
+function addFiles(fileList) {
+  const candidates = [...fileList].filter((file) => /^image\/(png|jpeg|webp)$/i.test(file.type));
+  for (const file of candidates) {
+    if (state.files.length >= MAX_FILES) break;
+    if (file.size > MAX_FILE_BYTES) {
+      showLocalWarning(`${file.name} is larger than 15 MB and was skipped.`);
+      continue;
+    }
+    const duplicate = state.files.some((existing) => existing.name === file.name && existing.size === file.size && existing.lastModified === file.lastModified);
+    if (!duplicate) state.files.push(file);
+  }
+  renderPreviews();
+  updateAnalyzeState();
+}
+
+function renderPreviews() {
+  els.previewGrid.innerHTML = '';
+  els.previewGrid.classList.toggle('hidden', state.files.length === 0);
+  state.files.forEach((file, index) => {
+    const card = document.createElement('div');
+    card.className = 'preview-card';
+    const img = document.createElement('img');
+    img.alt = `Screenshot ${index + 1}`;
+    const url = URL.createObjectURL(file);
+    img.src = url;
+    img.onload = () => URL.revokeObjectURL(url);
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.setAttribute('aria-label', `Remove screenshot ${index + 1}`);
+    remove.textContent = '×';
+    remove.addEventListener('click', (event) => {
+      event.stopPropagation();
+      state.files.splice(index, 1);
+      renderPreviews();
+      updateAnalyzeState();
+    });
+    card.append(img, remove);
+    els.previewGrid.appendChild(card);
   });
 }
 
-function splitPastedLine(line) {
-  // Excel/Google Sheets normally paste rows as tab-separated text. Keep empty cells;
-  // do not filter them out, because exported tables may contain blank Event/Event ID columns.
-  if (line.includes('\t')) return line.split('\t').map((x) => x.trim());
-  if (line.includes(';')) return line.split(';').map((x) => x.trim());
-  // Only use comma split when there are several commas. Competition names may contain commas,
-  // so tab-separated paste is preferred.
-  if ((line.match(/,/g) || []).length >= 2) return line.split(',').map((x) => x.trim());
-  return line.split(/\s{2,}/).map((x) => x.trim());
-}
-
-function normalizeHeader(value) {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-const KNOWN_SPORTS = new Set([
-  'american football', 'aussie rules', 'badminton', 'bandy', 'baseball', 'basketball',
-  'boxing', 'cricket', 'darts', 'esports', 'e sports', 'football', 'futsal', 'golf',
-  'handball', 'ice hockey', 'mma', 'motorsport', 'rugby league', 'rugby union',
-  'snooker', 'soccer', 'table tennis', 'tennis', 'volleyball', 'water polo'
-]);
-
-function isKnownSport(value) {
-  return KNOWN_SPORTS.has(normalizeHeader(value));
-}
-
-function findHeaderIndexes(parts) {
-  const headers = parts.map(normalizeHeader);
-  const sportIndex = headers.findIndex((h) => h === 'sport');
-  const competitionIndex = headers.findIndex((h) => h === 'competition' || h === 'competition name');
-  const operatorIndex = headers.findIndex((h) => h === 'operator' || h === 'operator brand' || h === 'brand' || h === 'trs id');
-  if (sportIndex >= 0 && competitionIndex >= 0) {
-    return { sportIndex, competitionIndex, operatorIndex };
-  }
-  return null;
-}
-
-function parsePastedRows(text) {
-  const rows = [];
-  const lines = String(text || '').replace(/\r/g, '').split('\n');
-  let detectedHeader = null;
-
-  for (const rawLine of lines) {
-    if (!rawLine.trim()) continue;
-    const parts = splitPastedLine(rawLine);
-    if (parts.length < 2) continue;
-
-    const headerIndexes = findHeaderIndexes(parts);
-    if (headerIndexes) {
-      detectedHeader = headerIndexes;
-      continue;
-    }
-
-    let sport = '';
-    let competition = '';
-    let operator = 'Global';
-
-    if (detectedHeader) {
-      sport = parts[detectedHeader.sportIndex] || '';
-      competition = parts[detectedHeader.competitionIndex] || '';
-      if (detectedHeader.operatorIndex >= 0 && parts[detectedHeader.operatorIndex]) {
-        operator = /^global$/i.test(parts[detectedHeader.operatorIndex]) ? 'Global' : parts[detectedHeader.operatorIndex];
-      }
-    } else if (parts.length >= 3 && isKnownSport(parts[1])) {
-      // Handles rows copied without the header from exports like:
-      // global<TAB>Golf<TAB>Interwetten Open 2026 - Men<TAB>U-29771...
-      operator = /^global$/i.test(parts[0]) ? 'Global' : parts[0];
-      sport = parts[1];
-      competition = parts[2];
-    } else {
-      // Simple old format: Sport<TAB>Competition
-      sport = parts[0];
-      competition = parts[1];
-    }
-
-    sport = String(sport || '').trim();
-    competition = String(competition || '').trim();
-    if (!sport || !competition) continue;
-
-    rows.push({ sport, competition, operator });
-  }
-  return rows;
-}
-
-function confidenceClass(label) {
-  return String(label || '').toLowerCase();
-}
-
-function explanationText(result) {
-  const lines = Array.isArray(result.explanation) ? result.explanation : [];
-  return lines.join(' ');
-}
-
-function renderResults(results) {
-  lastResults = results || [];
-  resultPanel.classList.remove('hidden');
-  resultTitle.textContent = `${lastResults.length} classified row${lastResults.length === 1 ? '' : 's'}`;
-  resultsBody.innerHTML = '';
-
-  for (const item of lastResults) {
-    const result = item.result || item;
-    const tr = document.createElement('tr');
-    const confidencePct = Math.round(Number(result.confidence || 0) * 100);
-    const confidenceLabel = result.confidenceLabel || 'Low';
-    tr.innerHTML = `
-      <td>${item.index ?? ''}</td>
-      <td>${escapeHtml(item.input?.sport || result.input?.sport || '')}</td>
-      <td>${escapeHtml(item.input?.competition || result.input?.competition || '')}</td>
-      <td><strong>${escapeHtml(result.riskClass || 'Error')}</strong></td>
-      <td><span class="confidence mini ${confidenceClass(confidenceLabel)}">${confidencePct}% · ${escapeHtml(confidenceLabel)}</span></td>
-      <td>${result.needsManualReview ? 'Yes' : 'No'}</td>
-      <td>${escapeHtml(explanationText(result) || result.error || '—')}</td>
-    `;
-    resultsBody.appendChild(tr);
-  }
-}
-
-function resultsToTsv(results) {
-  const header = ['Sport', 'Competition', 'Risk class', 'Confidence', 'Confidence label', 'Manual review', 'Explanation'];
-  const rows = [header];
-  for (const item of results || []) {
-    const result = item.result || item;
-    rows.push([
-      item.input?.sport || result.input?.sport || '',
-      item.input?.competition || result.input?.competition || '',
-      result.riskClass || '',
-      `${Math.round(Number(result.confidence || 0) * 100)}%`,
-      result.confidenceLabel || '',
-      result.needsManualReview ? 'Yes' : 'No',
-      explanationText(result) || result.error || '',
-    ]);
-  }
-  return rows.map((row) => row.map((cell) => String(cell).replace(/\t/g, ' ').replace(/\r?\n/g, ' ')).join('\t')).join('\n');
-}
-
-async function checkApiConnection() {
-  try {
-    const res = await apiFetch('/api/meta');
-    if (!res.ok) throw new Error(`API returned HTTP ${res.status}`);
-  } catch (error) {
-    showApiUrlHelper(error.message || 'The website could not reach the Worker API.');
-  }
-}
-
-form.addEventListener('submit', async (event) => {
+els.dropZone.addEventListener('click', () => els.fileInput.click());
+els.fileInput.addEventListener('change', () => {
+  addFiles(els.fileInput.files);
+  els.fileInput.value = '';
+});
+['dragenter', 'dragover'].forEach((name) => els.dropZone.addEventListener(name, (event) => {
   event.preventDefault();
-  const rows = parsePastedRows(bulkInput.value);
-  if (!rows.length) {
-    renderResults([{ index: 1, input: { sport: '', competition: '' }, result: { riskClass: 'Error', confidence: 0, confidenceLabel: 'Low', needsManualReview: true, explanation: ['Paste rows with two columns: Sport and Competition.'] } }]);
-    return;
+  els.dropZone.classList.add('dragging');
+}));
+['dragleave', 'drop'].forEach((name) => els.dropZone.addEventListener(name, (event) => {
+  event.preventDefault();
+  els.dropZone.classList.remove('dragging');
+}));
+els.dropZone.addEventListener('drop', (event) => addFiles(event.dataTransfer.files));
+
+document.addEventListener('paste', (event) => {
+  if (state.mode !== 'image' || state.busy) return;
+  const imageFiles = [...(event.clipboardData?.files || [])].filter((file) => file.type.startsWith('image/'));
+  if (imageFiles.length) {
+    event.preventDefault();
+    addFiles(imageFiles);
+  }
+});
+els.bulkInput.addEventListener('input', updateAnalyzeState);
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function clearAll() {
+  state.files = [];
+  state.results = [];
+  state.warnings = [];
+  els.bulkInput.value = '';
+  els.resultsBody.innerHTML = '';
+  els.resultsCard.classList.add('hidden');
+  els.progressCard.classList.add('hidden');
+  renderPreviews();
+  updateAnalyzeState();
+}
+els.clearBtn.addEventListener('click', clearAll);
+
+function startProgress() {
+  state.startedAt = Date.now();
+  els.progressCard.classList.remove('hidden');
+  els.progressBar.style.width = '7%';
+  const stages = [
+    { at: 0, width: 20, label: 'Reading input…', active: 0 },
+    { at: 2500, width: 43, label: 'Applying approved risk rules…', active: 1 },
+    { at: 6500, width: 68, label: 'Researching uncertain rows only…', active: 2 },
+    { at: 11000, width: 86, label: 'Validating brand confidence…', active: 3 },
+  ];
+  const tick = () => {
+    const elapsed = Date.now() - state.startedAt;
+    els.progressElapsed.textContent = `${Math.floor(elapsed / 1000)}s`;
+    const current = [...stages].reverse().find((stage) => elapsed >= stage.at) || stages[0];
+    els.progressLabel.textContent = current.label;
+    els.progressBar.style.width = `${current.width}%`;
+    [...els.progressCard.querySelectorAll('.progress-stages span')].forEach((el, idx) => el.classList.toggle('active', idx <= current.active));
+  };
+  tick();
+  state.progressTimer = setInterval(tick, 500);
+}
+
+function stopProgress(success = true) {
+  clearInterval(state.progressTimer);
+  state.progressTimer = null;
+  els.progressBar.style.width = success ? '100%' : '15%';
+  els.progressLabel.textContent = success ? 'Complete' : 'Analysis failed';
+  setTimeout(() => els.progressCard.classList.add('hidden'), success ? 600 : 1800);
+}
+
+function normalizeResultRow(row) {
+  const confidence = ['High', 'Medium', 'Low'].includes(row.confidence) ? row.confidence : 'Low';
+  let manualCheck = Boolean(row.manualCheck);
+  const brandValues = [row.dazn, row.quinnbet, row.nti].map((x) => String(x || ''));
+  const hasRec = brandValues.some((x) => /\brec\./i.test(x));
+  const hasMissing = brandValues.some((x) => /missing rule|manual check/i.test(x));
+
+  // Client-side guardrail mirrors the Custom GPT's hard consistency rules.
+  let finalConfidence = confidence;
+  if (hasMissing) finalConfidence = 'Low';
+  else if (hasRec && finalConfidence === 'High') finalConfidence = 'Medium';
+  if (finalConfidence !== 'High' || hasRec || hasMissing) manualCheck = true;
+  if (finalConfidence === 'High') manualCheck = false;
+
+  return { ...row, confidence: finalConfidence, manualCheck };
+}
+
+function sourceChips(sources) {
+  const items = Array.isArray(sources) ? sources : [sources].filter(Boolean);
+  if (!items.length) return '<span class="source-chip">—</span>';
+  return `<div class="source-list">${items.map((source) => `<span class="source-chip" title="${escapeHtml(source)}">${escapeHtml(source)}</span>`).join('')}</div>`;
+}
+
+function renderResults(payload) {
+  state.results = (payload.rows || []).map(normalizeResultRow);
+  state.warnings = payload.warnings || [];
+  els.resultsBody.innerHTML = '';
+
+  for (const row of state.results) {
+    const tr = document.createElement('tr');
+    const confClass = row.confidence.toLowerCase();
+    tr.innerHTML = `
+      <td>${escapeHtml(row.sport)}</td>
+      <td>${escapeHtml(row.competition)}</td>
+      <td>${escapeHtml(row.dazn)}</td>
+      <td>${escapeHtml(row.quinnbet)}</td>
+      <td>${escapeHtml(row.nti)}</td>
+      <td>${escapeHtml(row.basis)}</td>
+      <td><span class="confidence-pill ${confClass}">${escapeHtml(row.confidence)}</span></td>
+      <td>${sourceChips(row.sources)}</td>
+      <td><span class="manual-pill ${row.manualCheck ? 'yes' : 'no'}">${row.manualCheck ? 'Yes' : 'No'}</span></td>
+    `;
+    els.resultsBody.appendChild(tr);
   }
 
-  submitBtn.disabled = true;
-  submitBtn.textContent = `Classifying ${rows.length} row${rows.length === 1 ? '' : 's'}…`;
+  const high = state.results.filter((r) => r.confidence === 'High').length;
+  const medium = state.results.filter((r) => r.confidence === 'Medium').length;
+  const low = state.results.filter((r) => r.confidence === 'Low').length;
+  const checks = state.results.filter((r) => r.manualCheck).length;
+  els.summaryStrip.innerHTML = [
+    `<span class="summary-item"><strong>${high}</strong> High</span>`,
+    `<span class="summary-item"><strong>${medium}</strong> Medium</span>`,
+    `<span class="summary-item"><strong>${low}</strong> Low</span>`,
+    `<span class="summary-item"><strong>${checks}</strong> manual check${checks === 1 ? '' : 's'}</span>`,
+  ].join('');
+  els.resultCount.textContent = `${state.results.length} row${state.results.length === 1 ? '' : 's'}`;
 
+  if (state.warnings.length) {
+    els.warnings.classList.remove('hidden');
+    els.warnings.innerHTML = state.warnings.map((warning) => `• ${escapeHtml(warning)}`).join('<br>');
+  } else {
+    els.warnings.classList.add('hidden');
+    els.warnings.innerHTML = '';
+  }
+  els.resultsCard.classList.remove('hidden');
+  els.resultsCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function showLocalWarning(message) {
+  els.warnings.classList.remove('hidden');
+  els.warnings.textContent = message;
+  els.resultsCard.classList.remove('hidden');
+}
+
+async function analyze() {
+  if (state.busy) return;
+  state.busy = true;
+  updateAnalyzeState();
+  els.analyzeBtn.classList.add('loading');
+  els.analyzeBtn.querySelector('.btn-label').textContent = 'Analyzing…';
+  startProgress();
   try {
-    const res = await apiFetch('/api/classify-batch', {
+    const images = state.mode === 'image' ? await Promise.all(state.files.map(fileToDataUrl)) : [];
+    const body = {
+      mode: state.mode,
+      images,
+      text: state.mode === 'text' ? els.bulkInput.value : '',
+    };
+    const response = await fetch('/api/analyze', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        items: rows,
-        operator: 'Global',
-        isOutright: false,
-        useExternalLookup: true,
-        aiFallbackEnabled: true,
-      }),
+      body: JSON.stringify(body),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Batch classification failed');
-    renderResults(data.results || []);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `API returned HTTP ${response.status}`);
+    stopProgress(true);
+    renderResults(payload);
   } catch (error) {
-    renderResults(rows.map((row, idx) => ({
-      index: idx + 1,
-      input: row,
-      result: { riskClass: 'Error', confidence: 0, confidenceLabel: 'Low', needsManualReview: true, explanation: [error.message] },
-    })));
+    stopProgress(false);
+    showLocalWarning(error.message || 'Analysis failed.');
   } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Classify pasted rows';
+    state.busy = false;
+    els.analyzeBtn.classList.remove('loading');
+    els.analyzeBtn.querySelector('.btn-label').textContent = 'Analyze risk classes';
+    updateAnalyzeState();
   }
+}
+els.analyzeBtn.addEventListener('click', analyze);
+
+function tsv() {
+  const rows = [['Sport','Competition','DAZN','Quinnbet','NTI','Basis','Confidence','Sources','Manual check']];
+  for (const r of state.results) rows.push([r.sport,r.competition,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheck?'Yes':'No']);
+  return rows.map((row) => row.map((cell) => String(cell ?? '').replace(/\t/g,' ').replace(/\r?\n/g,' ')).join('\t')).join('\n');
+}
+
+els.copyBtn.addEventListener('click', async () => {
+  await navigator.clipboard.writeText(tsv());
+  const old = els.copyBtn.textContent;
+  els.copyBtn.textContent = 'Copied';
+  setTimeout(() => { els.copyBtn.textContent = old; }, 1200);
 });
 
-clearBtn.addEventListener('click', () => {
-  bulkInput.value = '';
-  resultsBody.innerHTML = '';
-  resultPanel.classList.add('hidden');
-  lastResults = [];
+function csvEscape(value) {
+  const text = String(value ?? '');
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g,'""')}"` : text;
+}
+els.csvBtn.addEventListener('click', () => {
+  const rows = [['Sport','Competition','DAZN','Quinnbet','NTI','Basis','Confidence','Sources','Manual check']];
+  for (const r of state.results) rows.push([r.sport,r.competition,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheck?'Yes':'No']);
+  const blob = new Blob([rows.map((row) => row.map(csvEscape).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `risk-classes-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 });
 
-copyResultsBtn.addEventListener('click', async () => {
-  const tsv = resultsToTsv(lastResults);
+async function checkApi() {
   try {
-    await navigator.clipboard.writeText(tsv);
-    copyResultsBtn.textContent = 'Copied';
-    setTimeout(() => { copyResultsBtn.textContent = 'Copy results'; }, 1200);
+    const response = await fetch('/api/meta', { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || 'API unavailable');
+    els.apiStatus.className = 'status-pill ok';
+    els.apiStatus.innerHTML = '<span class="status-dot"></span>API ready';
   } catch (_) {
-    const area = document.createElement('textarea');
-    area.value = tsv;
-    document.body.appendChild(area);
-    area.select();
-    document.execCommand('copy');
-    area.remove();
+    els.apiStatus.className = 'status-pill error';
+    els.apiStatus.innerHTML = '<span class="status-dot"></span>API setup required';
   }
-});
-
-checkApiConnection();
+}
+checkApi();
