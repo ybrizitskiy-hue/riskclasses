@@ -1,4 +1,6 @@
 (() => {
+  const SESSION_DRAFT_KEY = 'risk-provider-manager-draft-v1';
+  const SESSION_OPEN_KEY = 'risk-provider-manager-open-v1';
   let current = null;
   let draft = null;
   let validation = null;
@@ -9,6 +11,7 @@
   injectStylesheet();
   injectAdminButton();
   injectModal();
+  reopenAfterReload();
 
   function injectStylesheet() {
     if (document.querySelector('link[href="/provider-manager.css"]')) return;
@@ -84,13 +87,15 @@
     `;
     document.body.appendChild(overlay);
 
-    overlay.addEventListener('click', (event) => { if (event.target === overlay) closeManager(); });
+    // Do not close this long editing panel on backdrop clicks. Accidental clicks,
+    // browser zoom/scroll interactions and touchpad gestures must not throw away work.
     document.getElementById('providerManagerClose').addEventListener('click', closeManager);
     document.getElementById('providerAddBtn').addEventListener('click', addProfile);
     document.getElementById('providerReloadBtn').addEventListener('click', () => {
       if (!current) return;
       draft = clone(current.config);
       dirty = false;
+      clearSessionDraft();
       renderAll();
       scheduleValidate(0);
     });
@@ -105,19 +110,22 @@
 
   async function openManager() {
     if (!window.RISK_ROUTING?.admin) return window.RISK_ROUTING?.unlock?.();
+    markManagerOpen(true);
     const adminModal = document.getElementById('adminModal');
     if (adminModal) adminModal.hidden = true;
     document.getElementById('providerManagerModal').hidden = false;
     document.body.classList.add('admin-modal-open');
-    await loadCurrent();
+    await loadCurrent({ restoreDraft: true });
   }
 
   function closeManager() {
     document.getElementById('providerManagerModal').hidden = true;
     document.body.classList.remove('admin-modal-open');
+    markManagerOpen(false);
+    clearSessionDraft();
   }
 
-  async function loadCurrent() {
+  async function loadCurrent({ restoreDraft = false } = {}) {
     setBusy(true);
     setState('Loading provider configuration…');
     try {
@@ -128,8 +136,13 @@
       draft = clone(data.config);
       validation = data.validation || null;
       dirty = false;
+      if (restoreDraft) restoreSessionDraft();
       renderAll();
-      setState(`Loaded ${draft.profiles.length} provider profile${draft.profiles.length === 1 ? '' : 's'}.`, validation?.valid ? 'ok' : 'error');
+      setState(
+        dirty ? 'Recovered your unsaved provider edits after the page was reloaded.' : `Loaded ${draft.profiles.length} provider profile${draft.profiles.length === 1 ? '' : 's'}.`,
+        validation?.valid ? 'ok' : 'error'
+      );
+      if (dirty) scheduleValidate(0);
     } catch (error) {
       current = null;
       draft = null;
@@ -240,14 +253,22 @@
     const index = Number(event.target.dataset.index);
     if (!Number.isInteger(index) || !draft.profiles[index]) return;
     const profile = draft.profiles[index];
+    const path = event.target.dataset.path || '';
     if (event.target.dataset.cap) profile.capabilities[event.target.dataset.cap] = Boolean(event.target.checked);
     else if (event.target.dataset.price) profile.pricing[event.target.dataset.price] = event.target.value === '' ? null : Number(event.target.value);
-    else if (event.target.dataset.path) profile[event.target.dataset.path] = event.target.value;
+    else if (path) profile[path] = event.target.value;
     else return;
     dirty = true;
-    if (event.type === 'change' && ['transport','providerSlug'].includes(event.target.dataset.path)) renderProfiles();
-    renderRoutes();
-    renderEnvironment();
+    persistSessionDraft();
+
+    // Avoid rebuilding unrelated parts of the modal on every keystroke. Full card
+    // rebuilds are only needed when a select/provider slug changes field visibility.
+    if (event.type === 'change' && ['transport','providerSlug'].includes(path)) {
+      renderProfiles();
+      renderRoutes();
+    } else if (event.type === 'change' && ['id','label'].includes(path)) {
+      renderRoutes();
+    }
     scheduleValidate();
   }
 
@@ -263,6 +284,7 @@
         for (const key of ['extraction','primary','research','escalation']) if (route[key] === id) route[key] = null;
       }
       dirty = true;
+      persistSessionDraft();
       renderAll();
       scheduleValidate(0);
       return;
@@ -277,6 +299,7 @@
     if (!mode || !role || !draft?.routes?.[mode]) return;
     draft.routes[mode][role] = event.target.value || null;
     dirty = true;
+    persistSessionDraft();
     scheduleValidate();
   }
 
@@ -285,6 +308,7 @@
     draft.cloudflare = draft.cloudflare || {};
     draft.cloudflare[key] = value;
     dirty = true;
+    persistSessionDraft();
     renderEnvironment();
     scheduleValidate();
   }
@@ -309,6 +333,7 @@
       pricing: { input:null, cached:null, output:null, webSearch:null },
     });
     dirty = true;
+    persistSessionDraft();
     renderProfiles();
     renderRoutes();
     scheduleValidate(0);
@@ -360,7 +385,7 @@
     }
   }
 
-  function scheduleValidate(delay = 350) {
+  function scheduleValidate(delay = 700) {
     clearTimeout(validateTimer);
     validateTimer = setTimeout(validateDraft, delay);
   }
@@ -408,6 +433,7 @@
       draft = clone(data.config);
       validation = data.validation;
       dirty = false;
+      clearSessionDraft();
       renderAll();
       const syncCount = (data.sync?.results || []).filter((item) => item.action !== 'unchanged').length;
       setState(`Published ${draft.version}. New analyses use this routing globally.${syncCount ? ` ${syncCount} custom provider address${syncCount === 1 ? '' : 'es'} synchronized.` : ''}`, 'ok');
@@ -449,10 +475,64 @@
     if (publish) publish.disabled = busy || !dirty || !validation?.valid;
   }
 
+  function persistSessionDraft() {
+    if (!draft || !current?.config) return;
+    try {
+      sessionStorage.setItem(SESSION_DRAFT_KEY, JSON.stringify({
+        baseVersion: current.config.version || '',
+        savedAt: Date.now(),
+        draft,
+      }));
+    } catch {
+      // Session persistence is a convenience only; editing must keep working without it.
+    }
+  }
+
+  function restoreSessionDraft() {
+    try {
+      const raw = sessionStorage.getItem(SESSION_DRAFT_KEY);
+      if (!raw || !current?.config) return false;
+      const saved = JSON.parse(raw);
+      if (!saved?.draft || saved.baseVersion !== (current.config.version || '')) return false;
+      draft = clone(saved.draft);
+      dirty = true;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function clearSessionDraft() {
+    try { sessionStorage.removeItem(SESSION_DRAFT_KEY); } catch { /* non-fatal */ }
+  }
+
+  function markManagerOpen(value) {
+    try {
+      if (value) sessionStorage.setItem(SESSION_OPEN_KEY, '1');
+      else sessionStorage.removeItem(SESSION_OPEN_KEY);
+    } catch { /* non-fatal */ }
+  }
+
+  function reopenAfterReload() {
+    let shouldReopen = false;
+    try { shouldReopen = sessionStorage.getItem(SESSION_OPEN_KEY) === '1'; } catch { /* non-fatal */ }
+    if (!shouldReopen) return;
+    let attempts = 0;
+    const timer = setInterval(() => {
+      attempts += 1;
+      if (window.RISK_ROUTING?.admin) {
+        clearInterval(timer);
+        openManager();
+      } else if (attempts >= 20) {
+        clearInterval(timer);
+      }
+    }, 250);
+  }
+
   function pill(text, ok) { return `<span class="${ok ? 'ok' : 'warn'}">${text}</span>`; }
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
   function capitalize(value) { const text=String(value||''); return text ? text[0].toUpperCase()+text.slice(1) : text; }
-  function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch])); }
+  function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#039;'}[ch])); }
 
   window.RISK_PROVIDERS = { open: openManager, reload: loadCurrent };
 })();
