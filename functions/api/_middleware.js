@@ -1,4 +1,5 @@
 import { isAdminRequest } from '../lib/admin.js';
+import { getGlobalRoutingMode } from '../lib/runtime-config.js';
 
 export async function onRequest(context) {
   const url = new URL(context.request.url);
@@ -7,23 +8,22 @@ export async function onRequest(context) {
   }
 
   const admin = await isAdminRequest(context.request, context.env);
+  const globalRoutingMode = await getGlobalRoutingMode(context.env);
   let request = context.request;
 
-  if (!admin) {
-    try {
-      const body = await context.request.clone().json();
-      body.routingMode = 'auto';
-      const headers = new Headers(context.request.headers);
-      headers.set('content-type', 'application/json');
-      headers.delete('content-length');
-      request = new Request(context.request, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-      });
-    } catch {
-      // Let the route handler return its normal JSON validation error.
-    }
+  try {
+    const body = await context.request.clone().json();
+    body.routingMode = globalRoutingMode;
+    const headers = new Headers(context.request.headers);
+    headers.set('content-type', 'application/json');
+    headers.delete('content-length');
+    request = new Request(context.request, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+  } catch {
+    // Let the route handler return its normal JSON validation error.
   }
 
   const response = await context.next(request);
