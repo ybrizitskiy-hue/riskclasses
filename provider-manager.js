@@ -245,7 +245,7 @@
     else if (event.target.dataset.path) profile[event.target.dataset.path] = event.target.value;
     else return;
     dirty = true;
-    if (['transport','providerSlug'].includes(event.target.dataset.path)) renderProfiles();
+    if (event.type === 'change' && ['transport','providerSlug'].includes(event.target.dataset.path)) renderProfiles();
     renderRoutes();
     renderEnvironment();
     scheduleValidate();
