@@ -35,6 +35,7 @@ jobs:
           node --check functions/lib/cloudflare-provider-admin.js
           node --check functions/lib/deterministic.js
           node --check tests/chat-web-search-smoke.mjs
+          node --check tests/prompt-cache-key-smoke.mjs
       - name: Routing regression smoke tests
         run: node tests/routing-smoke.mjs
       - name: Admin gate smoke tests
@@ -43,6 +44,8 @@ jobs:
         run: node tests/provider-manager-smoke.mjs
       - name: Chat web search smoke tests
         run: node tests/chat-web-search-smoke.mjs
+      - name: Prompt cache key smoke tests
+        run: node tests/prompt-cache-key-smoke.mjs
       - name: Provider badge browser smoke tests
         run: node tests/provider-badge-browser-smoke.mjs
       - name: Provider panel stability smoke tests

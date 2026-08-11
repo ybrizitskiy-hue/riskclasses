@@ -6,6 +6,7 @@ import {
 
 const RETRY_DELAYS_MS = [700, 1800];
 const MAX_RETRY_AFTER_MS = 5000;
+const MAX_PROMPT_CACHE_KEY_LENGTH = 64;
 
 export async function callAiJson({
   env,
@@ -116,6 +117,14 @@ export function publicProfileStatus(env, config, profile) {
   };
 }
 
+export function compactPromptCacheKey(value) {
+  const text = String(value || '');
+  if (text.length <= MAX_PROMPT_CACHE_KEY_LENGTH) return text;
+  const hash = stableKeyHash(text);
+  const prefixLength = MAX_PROMPT_CACHE_KEY_LENGTH - hash.length - 1;
+  return `${text.slice(0, prefixLength)}-${hash}`;
+}
+
 async function fetchWithRetries(endpoint, init) {
   let lastError = null;
   const maxAttempts = RETRY_DELAYS_MS.length + 1;
@@ -160,6 +169,15 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
 }
 
+function stableKeyHash(value) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(36).padStart(7, '0');
+}
+
 function buildHeaders(env, config, profile) {
   const headers = { 'content-type': 'application/json' };
   if (profile.transport === 'openai-direct') {
@@ -185,7 +203,7 @@ function buildResponsesRequest({ profile, reasoning, input, schema, schemaName, 
     body.text = { format: { type: 'json_schema', name: schemaName, strict: true, schema } };
   }
   if (profile.capabilities?.promptCache && promptCacheKey) {
-    body.prompt_cache_key = promptCacheKey;
+    body.prompt_cache_key = compactPromptCacheKey(promptCacheKey);
     body.prompt_cache_retention = '24h';
   }
   if (actualWeb && webSearchMode(profile) !== 'native') {
