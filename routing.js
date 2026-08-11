@@ -1,5 +1,4 @@
 (() => {
-  const STORAGE_KEY = 'riskClassRoutingMode';
   const MODES = {
     auto: {
       label: 'Auto',
@@ -18,12 +17,12 @@
     },
   };
 
-  const savedMode = localStorage.getItem(STORAGE_KEY);
-  let mode = MODES[savedMode] ? savedMode : 'auto';
+  let mode = 'auto';
   let lastTelemetry = null;
   let admin = false;
   let adminConfigured = false;
   let adminChecked = false;
+  let savingMode = false;
 
   injectStylesheet();
   injectRoutingControl();
@@ -51,10 +50,10 @@
     control.hidden = true;
     control.innerHTML = `
       <div class="routing-copy">
-        <span class="routing-label">AI routing · admin</span>
+        <span class="routing-label">Global AI routing · admin</span>
         <span id="routingDescription" class="routing-description"></span>
       </div>
-      <div class="routing-segmented" role="radiogroup" aria-label="AI routing mode">
+      <div class="routing-segmented" role="radiogroup" aria-label="Global AI routing mode">
         ${Object.entries(MODES).map(([key, config]) => `
           <button type="button" class="routing-btn" data-routing="${key}" role="radio" aria-checked="false">${config.label}</button>
         `).join('')}
@@ -65,9 +64,7 @@
     control.querySelectorAll('.routing-btn').forEach((button) => {
       button.addEventListener('click', () => {
         if (!admin) return openAdminModal();
-        mode = button.dataset.routing;
-        localStorage.setItem(STORAGE_KEY, mode);
-        updateModeUi();
+        saveGlobalMode(button.dataset.routing);
       });
     });
 
@@ -98,8 +95,8 @@
       <div class="admin-modal" role="dialog" aria-modal="true" aria-labelledby="adminModalTitle">
         <button id="adminModalClose" type="button" class="admin-modal-close" aria-label="Close">×</button>
         <span class="admin-modal-kicker">Admin controls</span>
-        <h3 id="adminModalTitle">Unlock routing & cost</h3>
-        <p id="adminModalCopy">Enter the admin PIN to change AI routing modes and view cost telemetry.</p>
+        <h3 id="adminModalTitle">Unlock global routing & cost</h3>
+        <p id="adminModalCopy">Enter the admin PIN to set the AI routing mode used by everyone and view cost telemetry.</p>
         <form id="adminPinForm" autocomplete="off">
           <label for="adminPinInput">PIN</label>
           <input id="adminPinInput" type="password" inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="••••" />
@@ -110,7 +107,7 @@
           </div>
         </form>
         <div id="adminUnlockedActions" class="admin-unlocked-actions" hidden>
-          <div class="admin-unlocked-state"><span></span>Admin controls are unlocked for this browser session.</div>
+          <div class="admin-unlocked-state"><span></span>Admin controls are unlocked. Routing changes apply to everyone.</div>
           <div class="admin-modal-actions">
             <button id="adminDoneBtn" type="button" class="btn ghost small">Done</button>
             <button id="adminLockBtn" type="button" class="btn danger small">Lock admin</button>
@@ -139,12 +136,13 @@
       const data = await response.json().catch(() => ({}));
       adminConfigured = Boolean(data.configured);
       admin = Boolean(response.ok && data.admin);
+      mode = MODES[data.globalRoutingMode] ? data.globalRoutingMode : 'auto';
     } catch {
       adminConfigured = false;
       admin = false;
+      mode = 'auto';
     } finally {
       adminChecked = true;
-      if (!admin) mode = 'auto';
       updateAdminUi();
     }
   }
@@ -159,26 +157,52 @@
         ? '<span class="admin-lock-icon">◆</span> Admin unlocked'
         : '<span class="admin-lock-icon">◇</span> Admin';
       button.title = admin
-        ? 'Routing mode and cost telemetry are unlocked'
-        : 'Enter admin PIN to access routing mode and cost telemetry';
+        ? 'Global routing and cost telemetry are unlocked'
+        : 'Enter admin PIN to control routing for everyone and view cost telemetry';
     }
     if (control) control.hidden = !admin;
     if (!admin) removeTelemetry();
     updateModeUi();
   }
 
-  function updateModeUi() {
-    const effectiveMode = admin ? mode : 'auto';
-    const config = MODES[effectiveMode];
+  function updateModeUi(message = '') {
+    const config = MODES[mode] || MODES.auto;
     document.querySelectorAll('.routing-btn').forEach((button) => {
-      const active = button.dataset.routing === effectiveMode;
+      const active = button.dataset.routing === mode;
       button.classList.toggle('active', active);
       button.setAttribute('aria-checked', active ? 'true' : 'false');
+      button.disabled = savingMode;
     });
     const description = document.getElementById('routingDescription');
-    if (description) description.textContent = config.description;
+    if (description) description.textContent = message || `${config.description} This mode is enforced globally for all users.`;
     const pill = document.getElementById('routingModelPill') || document.querySelector('.model-pill');
-    if (pill) pill.textContent = admin ? config.badge : 'Auto · optimized';
+    if (pill) pill.textContent = `${config.badge} · managed`;
+  }
+
+  async function saveGlobalMode(nextMode) {
+    if (!admin || !MODES[nextMode] || savingMode || nextMode === mode) return;
+    const previous = mode;
+    savingMode = true;
+    updateModeUi('Saving global routing mode…');
+    try {
+      const response = await fetch('/api/admin', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ routingMode: nextMode }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !MODES[data.globalRoutingMode]) {
+        throw new Error(data.error || 'Could not save global routing mode.');
+      }
+      mode = data.globalRoutingMode;
+      updateModeUi(`${MODES[mode].description} Saved globally for everyone.`);
+    } catch (error) {
+      mode = previous;
+      updateModeUi(error?.message || 'Could not save global routing mode.');
+    } finally {
+      savingMode = false;
+      updateModeUi();
+    }
   }
 
   function openAdminModal() {
@@ -192,14 +216,14 @@
     error.textContent = '';
 
     if (admin) {
-      title.textContent = 'Admin controls unlocked';
-      copy.textContent = 'You can change AI routing modes and view request cost telemetry.';
+      title.textContent = 'Global admin controls unlocked';
+      copy.textContent = `Current global mode: ${MODES[mode].label}. Changes to the selector apply to every user.`;
       form.hidden = true;
       unlocked.hidden = false;
     } else {
-      title.textContent = 'Unlock routing & cost';
+      title.textContent = 'Unlock global routing & cost';
       copy.textContent = adminConfigured
-        ? 'Enter the admin PIN to change AI routing modes and view cost telemetry.'
+        ? 'Enter the admin PIN to set the AI routing mode used by everyone and view cost telemetry.'
         : 'Admin PIN is not configured yet. Add the RISK_ADMIN_PIN secret in Cloudflare and redeploy.';
       form.hidden = false;
       unlocked.hidden = true;
@@ -243,8 +267,7 @@
       if (!response.ok || !data.admin) throw new Error(data.error || 'Could not unlock admin controls.');
       admin = true;
       adminConfigured = true;
-      const stored = localStorage.getItem(STORAGE_KEY);
-      mode = MODES[stored] ? stored : 'auto';
+      mode = MODES[data.globalRoutingMode] ? data.globalRoutingMode : mode;
       updateAdminUi();
       closeAdminModal();
     } catch (unlockError) {
@@ -265,7 +288,6 @@
       // Lock locally even if the request fails; the cookie will expire server-side.
     }
     admin = false;
-    mode = 'auto';
     lastTelemetry = null;
     updateAdminUi();
     closeAdminModal();
@@ -276,23 +298,13 @@
     const nativeFetch = window.fetch.bind(window);
     window.fetch = async (input, init = {}) => {
       const url = typeof input === 'string' ? input : input?.url || '';
-      let nextInit = init;
-
-      if (/\/api\/analyze(?:\?|$)/.test(url) && String(init.method || 'GET').toUpperCase() === 'POST' && typeof init.body === 'string') {
-        try {
-          const parsed = JSON.parse(init.body);
-          parsed.routingMode = admin ? mode : 'auto';
-          nextInit = { ...init, body: JSON.stringify(parsed) };
-        } catch (_) {
-          // Keep original request if the body is not JSON.
-        }
-      }
-
-      const response = await nativeFetch(input, nextInit);
+      const response = await nativeFetch(input, init);
       if (/\/api\/analyze(?:\?|$)/.test(url)) {
         response.clone().json().then((payload) => {
           if (admin && payload?.telemetry) {
             lastTelemetry = payload.telemetry;
+            if (MODES[payload.telemetry.routingMode]) mode = payload.telemetry.routingMode;
+            updateModeUi();
             renderTelemetry(lastTelemetry);
           } else {
             lastTelemetry = null;
@@ -374,7 +386,7 @@
   }
 
   window.RISK_ROUTING = {
-    get mode() { return admin ? mode : 'auto'; },
+    get mode() { return mode; },
     get admin() { return admin; },
     get telemetry() { return admin ? lastTelemetry : null; },
     unlock: openAdminModal,
