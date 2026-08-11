@@ -17,17 +17,12 @@ export function defaultProviderConfig(env = {}) {
     openAiProfile('openai-luna-direct', 'OpenAI Luna', luna, { input: 1, cached: 0.1, output: 6, webSearch: 0.01 }),
     openAiProfile('openai-terra-direct', 'OpenAI Terra', terra, { input: 2.5, cached: 0.25, output: 15, webSearch: 0.01 }),
   ];
-  if (extract !== luna) {
-    profiles.unshift(openAiProfile('openai-extract-direct', 'OpenAI extraction', extract, null));
-  }
+  if (extract !== luna) profiles.unshift(openAiProfile('openai-extract-direct', 'OpenAI extraction', extract, null));
   const extractionId = extract === luna ? 'openai-luna-direct' : 'openai-extract-direct';
   return {
     schemaVersion: PROVIDER_SCHEMA_VERSION,
     version: 'providers-v1',
-    cloudflare: {
-      accountId: '',
-      gatewayId: env.CF_AI_GATEWAY_ID || 'default',
-    },
+    cloudflare: { accountId: '', gatewayId: env.CF_AI_GATEWAY_ID || 'default' },
     profiles,
     routes: {
       economy: { extraction: extractionId, primary: 'openai-luna-direct', research: null, escalation: null },
@@ -39,22 +34,15 @@ export function defaultProviderConfig(env = {}) {
 
 function openAiProfile(id, label, model, pricing) {
   return {
-    id,
-    label,
+    id, label,
     transport: 'openai-direct',
     protocol: 'responses',
     model,
     providerSlug: 'openai',
+    baseUrl: '',
     pathPrefix: '',
     byokAlias: '',
-    capabilities: {
-      vision: true,
-      jsonSchema: true,
-      reasoning: true,
-      webSearch: true,
-      promptCache: true,
-      store: true,
-    },
+    capabilities: { vision: true, jsonSchema: true, reasoning: true, webSearch: true, promptCache: true, store: true },
     pricing: normalizePricing(pricing),
   };
 }
@@ -66,8 +54,9 @@ export async function loadProviderConfig(env, { persistDefault = false } = {}) {
       const raw = await kv.get(PROVIDER_CONFIG_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        const validation = validateProviderConfig(parsed, env);
-        if (validation.valid) return normalizeProviderConfig(parsed, env);
+        const candidate = migrateProviderConfig(parsed);
+        const validation = validateProviderConfig(candidate, env);
+        if (validation.valid) return normalizeProviderConfig(candidate, env);
       }
     } catch {
       // Fall through to a backwards-compatible direct OpenAI configuration.
@@ -81,7 +70,8 @@ export async function loadProviderConfig(env, { persistDefault = false } = {}) {
 }
 
 export async function saveProviderConfig(env, value) {
-  const validation = validateProviderConfig(value, env);
+  const migrated = migrateProviderConfig(value);
+  const validation = validateProviderConfig(migrated, env);
   if (!validation.valid) {
     const error = new Error(validation.errors.join(' '));
     error.validation = validation;
@@ -89,20 +79,24 @@ export async function saveProviderConfig(env, value) {
   }
   const kv = env?.RISK_RULES;
   if (!kv || typeof kv.put !== 'function') throw new Error('RISK_RULES KV binding does not support writes.');
-  const normalized = normalizeProviderConfig(value, env);
-  if (!normalized.version || normalized.version === 'providers-v1') {
-    normalized.version = `providers-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-  }
+  const normalized = normalizeProviderConfig(migrated, env);
+  if (!normalized.version || normalized.version === 'providers-v1') normalized.version = revisionName(normalized.version || 'providers');
   await kv.put(PROVIDER_CONFIG_KEY, JSON.stringify(normalized));
   return normalized;
+}
+
+export function migrateProviderConfig(value) {
+  const source = JSON.parse(JSON.stringify(value || {}));
+  if (Array.isArray(source.profiles)) {
+    source.profiles = source.profiles.map((profile) => ({ baseUrl: '', ...profile }));
+  }
+  return source;
 }
 
 export function validateProviderConfig(value, env = {}) {
   const errors = [];
   const warnings = [];
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { valid: false, errors: ['Provider configuration must be a JSON object.'], warnings, stats: {} };
-  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { valid: false, errors: ['Provider configuration must be a JSON object.'], warnings, stats: {} };
   if (Number(value.schemaVersion) !== PROVIDER_SCHEMA_VERSION) errors.push(`schemaVersion must be ${PROVIDER_SCHEMA_VERSION}.`);
   const profiles = Array.isArray(value.profiles) ? value.profiles : [];
   if (!profiles.length) errors.push('At least one AI provider profile is required.');
@@ -110,6 +104,7 @@ export function validateProviderConfig(value, env = {}) {
 
   const ids = new Set();
   let cloudflareProfiles = 0;
+  let managedCustomProviders = 0;
   for (const profile of profiles) {
     if (!profile || typeof profile !== 'object') { errors.push('Each provider profile must be an object.'); continue; }
     const id = String(profile.id || '').trim();
@@ -123,13 +118,24 @@ export function validateProviderConfig(value, env = {}) {
 
     if (profile.transport === 'cloudflare-rest' || profile.transport === 'cloudflare-provider') cloudflareProfiles += 1;
     if (profile.transport === 'cloudflare-provider') {
-      if (!PROVIDER_SLUG_RE.test(String(profile.providerSlug || '').trim())) errors.push(`Profile ${id} needs a valid Cloudflare provider slug.`);
+      const slug = String(profile.providerSlug || '').trim();
+      if (!PROVIDER_SLUG_RE.test(slug)) errors.push(`Profile ${id} needs a valid Cloudflare provider slug.`);
       const prefix = String(profile.pathPrefix || '').trim();
       if (prefix.includes('..') || prefix.includes('://') || prefix.includes('?') || prefix.includes('#')) errors.push(`Profile ${id} has an unsafe path prefix.`);
+      const baseUrl = String(profile.baseUrl || '').trim();
+      if (baseUrl) {
+        const urlError = validateHttpsBaseUrl(baseUrl);
+        if (urlError) errors.push(`Profile ${id} base URL ${urlError}`);
+        if (!slug.startsWith('custom-')) warnings.push(`Profile ${id}: Base URL is only synchronized for custom-* provider slugs; native Cloudflare provider addresses are managed by Cloudflare.`);
+        else {
+          managedCustomProviders += 1;
+          if (!env.CF_AI_GATEWAY_ADMIN_TOKEN) warnings.push(`Profile ${id}: Base URL is configured but CF_AI_GATEWAY_ADMIN_TOKEN is missing, so the website cannot synchronize the Cloudflare Custom Provider address.`);
+        }
+      }
     }
+
     const alias = String(profile.byokAlias || '').trim();
     if (alias && !ALIAS_RE.test(alias)) errors.push(`Profile ${id} has an invalid BYOK alias.`);
-
     const caps = profile.capabilities || {};
     for (const key of ['vision','jsonSchema','reasoning','webSearch','promptCache','store']) {
       if (typeof caps[key] !== 'boolean') errors.push(`Profile ${id} capability ${key} must be true or false.`);
@@ -158,23 +164,19 @@ export function validateProviderConfig(value, env = {}) {
     if (extractProfile && !extractProfile.capabilities?.vision) errors.push(`${mode}.extraction profile ${extractProfile.id} must have Vision enabled.`);
   }
 
-  if (!env.OPENAI_API_KEY && profiles.some((profile) => profile.transport === 'openai-direct')) {
-    warnings.push('Direct OpenAI profiles require the OPENAI_API_KEY Cloudflare secret at runtime.');
-  }
-  if (!env.CF_AI_GATEWAY_TOKEN && cloudflareProfiles) {
-    warnings.push('Cloudflare profiles require the CF_AI_GATEWAY_TOKEN Cloudflare secret at runtime.');
-  }
+  if (!env.OPENAI_API_KEY && profiles.some((profile) => profile.transport === 'openai-direct')) warnings.push('Direct OpenAI profiles require the OPENAI_API_KEY Cloudflare secret at runtime.');
+  if (!env.CF_AI_GATEWAY_TOKEN && cloudflareProfiles) warnings.push('Cloudflare profiles require the CF_AI_GATEWAY_TOKEN Cloudflare secret at runtime.');
 
   return {
     valid: errors.length === 0,
     errors,
     warnings,
-    stats: { profileCount: profiles.length, cloudflareProfiles, routeModes: MODES.length },
+    stats: { profileCount: profiles.length, cloudflareProfiles, managedCustomProviders, routeModes: MODES.length },
   };
 }
 
 export function normalizeProviderConfig(value, env = {}) {
-  const source = JSON.parse(JSON.stringify(value || defaultProviderConfig(env)));
+  const source = migrateProviderConfig(value || defaultProviderConfig(env));
   source.schemaVersion = PROVIDER_SCHEMA_VERSION;
   source.version = String(source.version || 'providers-v1').trim();
   source.cloudflare = {
@@ -188,6 +190,7 @@ export function normalizeProviderConfig(value, env = {}) {
     protocol: profile.protocol,
     model: String(profile.model || '').trim(),
     providerSlug: String(profile.providerSlug || '').trim(),
+    baseUrl: normalizeBaseUrl(profile.baseUrl),
     pathPrefix: String(profile.pathPrefix || '').trim().replace(/^\/+|\/+$/g, ''),
     byokAlias: String(profile.byokAlias || '').trim(),
     capabilities: {
@@ -241,9 +244,7 @@ export function effectiveGatewayId(config, env = {}) {
 
 export function profileRuntimeStatus(env, config, profile) {
   if (!profile) return { ready: false, reason: 'Profile not found.' };
-  if (profile.transport === 'openai-direct') {
-    return env.OPENAI_API_KEY ? { ready: true, credential: 'OPENAI_API_KEY' } : { ready: false, reason: 'OPENAI_API_KEY is not configured.' };
-  }
+  if (profile.transport === 'openai-direct') return env.OPENAI_API_KEY ? { ready: true, credential: 'OPENAI_API_KEY' } : { ready: false, reason: 'OPENAI_API_KEY is not configured.' };
   const accountId = effectiveCloudflareAccountId(config, env);
   if (!accountId) return { ready: false, reason: 'Cloudflare Account ID is missing.' };
   if (!env.CF_AI_GATEWAY_TOKEN) return { ready: false, reason: 'CF_AI_GATEWAY_TOKEN is not configured.' };
@@ -264,14 +265,37 @@ export function routingLabels(config) {
   return result;
 }
 
+export function isManagedCustomProfile(profile) {
+  return Boolean(profile?.transport === 'cloudflare-provider' && String(profile.providerSlug || '').startsWith('custom-') && String(profile.baseUrl || '').trim());
+}
+
+export function customProviderSlug(profile) {
+  const raw = String(profile?.providerSlug || '').trim();
+  return raw.startsWith('custom-') ? raw.slice(7) : raw;
+}
+
+function validateHttpsBaseUrl(value) {
+  try {
+    const url = new URL(String(value));
+    if (url.protocol !== 'https:') return 'must use https://.';
+    if (url.username || url.password) return 'must not contain credentials.';
+    if (url.search || url.hash) return 'must not contain query parameters or fragments.';
+    if (!url.hostname) return 'is invalid.';
+    return '';
+  } catch {
+    return 'is not a valid HTTPS URL.';
+  }
+}
+
+function normalizeBaseUrl(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text.replace(/\/+$/g, '');
+}
+
 function normalizePricing(pricing) {
   const src = pricing && typeof pricing === 'object' ? pricing : {};
-  return {
-    input: nullableNumber(src.input),
-    cached: nullableNumber(src.cached),
-    output: nullableNumber(src.output),
-    webSearch: nullableNumber(src.webSearch),
-  };
+  return { input: nullableNumber(src.input), cached: nullableNumber(src.cached), output: nullableNumber(src.output), webSearch: nullableNumber(src.webSearch) };
 }
 
 function nullableNumber(value) {
@@ -289,4 +313,8 @@ function validatePricing(pricing, id, errors) {
     const number = Number(value);
     if (!Number.isFinite(number) || number < 0) errors.push(`Profile ${id} pricing.${key} must be a non-negative number or blank.`);
   }
+}
+
+function revisionName(prefix) {
+  return `${prefix}-r${new Date().toISOString().replace(/[:.]/g, '-')}`;
 }
