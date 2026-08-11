@@ -2,6 +2,7 @@ const RULES_KEY = 'custom-gpt-v2';
 
 export async function onRequestGet(context) {
   const apiKeyConfigured = Boolean(context.env.OPENAI_API_KEY);
+  const adminPinConfigured = Boolean(context.env.RISK_ADMIN_PIN);
   const kvConfigured = Boolean(context.env.RISK_RULES && typeof context.env.RISK_RULES.get === 'function');
   let rulesConfigured = false;
   let rulesVersion = null;
@@ -26,6 +27,8 @@ export async function onRequestGet(context) {
     routing: {
       default: 'auto',
       modes: ['auto', 'economy', 'quality'],
+      adminProtectedModes: ['economy', 'quality'],
+      costTelemetryAdminOnly: true,
       extraction: { model: context.env.OPENAI_EXTRACT_MODEL || 'gpt-5.6-luna', reasoning: 'low' },
       economy: { model: context.env.OPENAI_LUNA_MODEL || 'gpt-5.6-luna', reasoning: 'medium' },
       auto: {
@@ -38,6 +41,7 @@ export async function onRequestGet(context) {
       webSearchOnlyForUnresolved: true,
     },
     apiKeyConfigured,
+    adminPinConfigured,
     rulesConfigured,
     rulesVersion,
   }, {
