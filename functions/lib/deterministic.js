@@ -1,6 +1,12 @@
 const RC_ORDER = ['A','B','C','D','E','F','G','H','I'];
 
-export function buildRuntimeIndex(knowledge = '') {
+export function buildRuntimeIndex(source = '') {
+  const bundle = source && typeof source === 'object' && !Array.isArray(source) ? source : null;
+  const knowledge = bundle ? String(bundle.knowledge || '') : String(source || '');
+  const deterministicRules = bundle?.deterministicRules && typeof bundle.deterministicRules === 'object'
+    ? bundle.deterministicRules
+    : null;
+
   const footballRcI = new Set();
   const marker = '## 7. Explicit RC I Football Leagues';
   const start = knowledge.indexOf(marker);
@@ -13,7 +19,12 @@ export function buildRuntimeIndex(knowledge = '') {
       if (match) footballRcI.add(normalize(match[1]));
     }
   }
-  return { footballRcI };
+
+  return {
+    footballRcI,
+    deterministicRules,
+    compiledRules: compileRules(deterministicRules?.rules),
+  };
 }
 
 export function classifyDeterministic(row, index) {
@@ -23,94 +34,88 @@ export function classifyDeterministic(row, index) {
 
   const sport = normalize(sportRaw);
   const competition = normalize(competitionRaw);
-  let result = null;
+  const config = index?.deterministicRules;
+  if (!config) return null;
 
-  if (sport === 'tennis') result = classifyTennis(competitionRaw, competition);
-  else if (sport === 'golf') result = classifyGolf(competitionRaw, competition);
-  else if (sport === 'table tennis') result = classifyTableTennis(competitionRaw, competition);
-  else if (sport === 'badminton') result = classifyBadminton(competitionRaw, competition);
-  else if (sport === 'mma') result = classifyMma(competitionRaw, competition);
-  else if (sport === 'football' && index?.footballRcI?.has(competition)) {
-    result = confirmed('RC I', 'RC I', 'RC I', 'Football RC I explicit list');
+  let result = null;
+  const football = config.footballRcI;
+  if (
+    sport === 'football' &&
+    football?.enabled &&
+    index?.footballRcI?.has(competition)
+  ) {
+    result = confirmed(football.dazn, football.quinnbet, football.nti, football.basis || 'Football RC I explicit list', 'Risk Class guide');
+  }
+
+  if (!result) {
+    for (const compiled of index?.compiledRules || []) {
+      if (compiled.sport !== sport) continue;
+      if (!matches(compiled, competition)) continue;
+      result = confirmed(
+        compiled.dazn,
+        compiled.quinnbet,
+        compiled.nti,
+        compiled.basis,
+        compiled.source || 'Risk Class guide',
+      );
+      break;
+    }
   }
 
   if (!result) return null;
-  if (isOutrightText(competitionRaw)) return applyOutright(result);
+  if (isOutrightText(competitionRaw)) result = applyOutright(result);
   return { ...result, sport: sportRaw, competition: competitionRaw, route: 'deterministic' };
 }
 
-function classifyTennis(original, c) {
-  if (/\b(srl|simulated reality|virtuals?|simulated)\b/.test(c)) {
-    return confirmed('RC H', 'RC H', 'RC H', 'Operational exception: Tennis SRL / Simulated Reality not offered');
+function compileRules(rules) {
+  if (!Array.isArray(rules)) return [];
+  const output = [];
+  for (const item of rules) {
+    if (!item || typeof item !== 'object') continue;
+    const sport = normalize(item.sport || '');
+    if (!sport) continue;
+    const match = item.match || {};
+    try {
+      output.push({
+        id: String(item.id || ''),
+        sport,
+        any: compileList(match.any),
+        all: compileList(match.all),
+        none: compileList(match.none),
+        dazn: String(item.dazn || ''),
+        quinnbet: String(item.quinnbet || ''),
+        nti: String(item.nti || ''),
+        basis: String(item.basis || ''),
+        source: String(item.source || 'Risk Class guide'),
+      });
+    } catch {
+      // Invalid regexes are rejected by Rules Manager validation. Skip here defensively.
+    }
   }
-
-  if (/\butr\b/.test(c)) {
-    return confirmed('RC H', 'RC G', 'RC H', 'UTR / UTR PTT');
-  }
-
-  if (/\bchallenger\b/.test(c) && /\bdoubles?\b/.test(c)) {
-    return confirmed('RC G', 'RC F', 'RC G', 'Challenger Doubles');
-  }
-
-  const itfContext = /\bitf\b/.test(c) || /^wt\b/.test(c) || /\bworld tennis tour\b/.test(c);
-  if (!itfContext) return null;
-
-  if (/\b(qualification|qualifier|qualifying|quals?)\b/.test(c)) {
-    return confirmed('RC H', 'RC G', 'RC H', 'ITF Singles Qualification');
-  }
-  if (/\bdoubles?\b/.test(c)) {
-    return confirmed('RC H', 'RC G', 'RC H', 'ITF / World Tennis Tour Doubles');
-  }
-
-  return confirmed('RC G', 'RC F', 'RC G', 'ITF / World Tennis Tour Singles Main Draw');
+  return output;
 }
 
-function classifyGolf(original, c) {
-  if (/\bryder cup\b/.test(c) || /\bthe masters\b/.test(c) || /\bmasters tournament\b/.test(c) || /\bpga championship\b/.test(c) || /\bu\.?s\.? open\b/.test(c) || /\bthe open championship\b/.test(c)) {
-    return confirmed('RC A', 'RC A', 'RC A', 'Golf Major / Ryder Cup');
-  }
-  if (/\bpga tour champions\b/.test(c) || /\bkorn ferry\b/.test(c) || /\blpga\b/.test(c) || /\bboeing classic\b/.test(c)) {
-    return confirmed('RC C', 'RC C', 'RC C', /boeing classic|pga tour champions/.test(c) ? 'PGA Tour Champions / Golf other' : 'Korn Ferry / LPGA');
-  }
-  if (/\bpga tour\b/.test(c) || /\bdp world tour\b/.test(c) || /\bliv golf\b/.test(c) || /\bliv golf league\b/.test(c)) {
-    return confirmed('RC B', 'RC B', 'RC B', 'PGA Tour / DP World Tour / LIV');
-  }
-  return null;
+function compileList(values) {
+  return (Array.isArray(values) ? values : [])
+    .filter((value) => typeof value === 'string' && value)
+    .map((value) => new RegExp(value, 'i'));
 }
 
-function classifyTableTennis(original, c) {
-  if (/\bwtt feeder\b/.test(c)) return confirmed('RC D', 'RC D', 'RC D', 'Table Tennis all other comps — WTT Feeder');
-  if (/\bwtt star contender\b/.test(c)) return confirmed('RC D', 'RC D', 'RC D', 'Table Tennis all other comps — WTT Star Contender');
-  if (/\bsingapore smash\b/.test(c)) return confirmed('RC D', 'RC D', 'RC D', 'Table Tennis explicit RC D category');
-  return null;
+function matches(rule, competition) {
+  if (rule.any.length && !rule.any.some((pattern) => pattern.test(competition))) return false;
+  if (rule.all.length && !rule.all.every((pattern) => pattern.test(competition))) return false;
+  if (rule.none.some((pattern) => pattern.test(competition))) return false;
+  return rule.any.length > 0 || rule.all.length > 0;
 }
 
-function classifyBadminton(original, c) {
-  const doublesMarker = /\b(doubles?|mixed doubles|md|wd|xd)\b/.test(c);
-  if (/\bworld championships?\b/.test(c) && doublesMarker) {
-    return confirmed('RC C', 'RC C', 'RC C', 'Badminton World Championships Doubles / XD');
-  }
-  if (/\bsuper 750\b/.test(c)) return confirmed('RC C', 'RC C', 'RC C', 'Badminton Super 750');
-  if (/\bworld championships?\b/.test(c) || /\bsuper 1000\b/.test(c) || /\btour finals\b/.test(c) || /\beuropean championship\b/.test(c)) {
-    return confirmed('RC A', 'RC A', 'RC A', 'Badminton elite category');
-  }
-  if (/\bmalaysia international\b/.test(c)) return confirmed('RC D', 'RC D', 'RC D', 'Badminton all other leagues');
-  return null;
-}
-
-function classifyMma(original, c) {
-  if (/\bcontender series\b/.test(c)) return confirmed('RC D', 'RC D', 'RC D', 'MMA Contender Series');
-  return null;
-}
-
-function confirmed(dazn, quinnbet, nti, basis) {
+function confirmed(dazn, quinnbet, nti, basis, source) {
   return {
     dazn,
     quinnbet,
     nti,
     basis,
     confidence: 'High',
-    sources: ['Risk Class guide'],
+    sources: [source || 'Risk Class guide'],
     manualCheck: false,
   };
 }

@@ -1,0 +1,29 @@
+name: Regression tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  node-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax checks
+        run: |
+          node --check routing.js
+          node --check rules-manager.js
+          node --check functions/api/analyze-core.js
+          node --check functions/api/rules.js
+          node --check functions/lib/deterministic.js
+          node --check functions/lib/rules-bundle.js
+      - name: Routing regression
+        run: node tests/routing-smoke.mjs
+      - name: Admin routing regression
+        run: node tests/admin-gate-smoke.mjs
+      - name: Rules manager regression
+        run: node tests/rules-manager-smoke.mjs

@@ -1,7 +1,17 @@
 import { buildRuntimeIndex, classifyDeterministic } from '../functions/lib/deterministic.js';
+import { baselineDeterministicRules } from '../functions/lib/rules-bundle.js';
 import { onRequestPost } from '../functions/api/analyze.js';
 
-const index = buildRuntimeIndex('## 7. Explicit RC I Football Leagues\n\n1. Test League - Testland\n\n## 8. End');
+const knowledge = `## 7. Explicit RC I Football Leagues\n\n1. Test League - Testland\n\n## 8. End\n\nTennis SRL / Simulated Reality operational exception.\n${'Approved risk class knowledge. '.repeat(120)}`;
+const instructions = `High -> Manual check No. Medium -> Yes. Low -> Yes. rec. can never be High. ${'Preserve approved rules and brand mappings. '.repeat(30)}`;
+const canonicalBundle = {
+  schemaVersion: 1,
+  version: '2026-08-11-v2',
+  instructions,
+  knowledge,
+  deterministicRules: baselineDeterministicRules(),
+};
+const index = buildRuntimeIndex(canonicalBundle);
 const deterministicCases = [
   ['Tennis','WT Bydgoszcz. Poland. Women Singles','RC G','RC F','RC G'],
   ['Tennis','ITF M15 Trier Qualification - Germany','RC H','RC G','RC H'],
@@ -24,7 +34,7 @@ for (const [sport, competition, dazn, qb, nti] of deterministicCases) {
 }
 assert(classifyDeterministic({ sport:'Golf', competition:'Genesis Scottish Open - Round 1' }, index) === null, 'Unknown-tour Golf event must route to AI');
 
-const rulesPayload = JSON.stringify({ version:'2026-08-11-v2', instructions:'Use approved rules.', knowledge:'## 7. Explicit RC I Football Leagues\n\n1. Test League - Testland\n\n## 8. End' });
+const rulesPayload = JSON.stringify(canonicalBundle);
 const env = { OPENAI_API_KEY:'test', RISK_RULES:{ async get(){ return rulesPayload; } } };
 const calls = [];
 globalThis.fetch = async (_url, init) => {
