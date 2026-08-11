@@ -15,18 +15,27 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
       - name: Syntax checks
         run: |
           node --check app.js
           node --check routing.js
+          node --check rules-manager.js
+          node --check provider-manager.js
+          node --check provider-badge.js
           node --check functions/api/analyze.js
+          node --check functions/api/analyze-core.js
           node --check functions/api/admin.js
+          node --check functions/api/providers.js
           node --check functions/api/_middleware.js
           node --check functions/api/meta.js
           node --check functions/lib/admin.js
+          node --check functions/lib/ai-client.js
+          node --check functions/lib/provider-config.js
           node --check functions/lib/deterministic.js
       - name: Routing regression smoke tests
         run: node tests/routing-smoke.mjs
       - name: Admin gate smoke tests
         run: node tests/admin-gate-smoke.mjs
+      - name: Provider manager smoke tests
+        run: node tests/provider-manager-smoke.mjs
