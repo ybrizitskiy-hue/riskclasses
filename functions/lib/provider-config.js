@@ -140,7 +140,6 @@ export function validateProviderConfig(value, env = {}) {
     for (const key of ['vision','jsonSchema','reasoning','webSearch','promptCache','store']) {
       if (typeof caps[key] !== 'boolean') errors.push(`Profile ${id} capability ${key} must be true or false.`);
     }
-    if (profile.protocol === 'chat-completions' && caps.webSearch) warnings.push(`Profile ${id}: generic Chat Completions routing does not expose the OpenAI Responses web_search tool; web search will be disabled.`);
     if (!caps.jsonSchema) warnings.push(`Profile ${id}: JSON Schema is disabled, so the server will rely on prompt-only JSON output and strict parsing.`);
     validatePricing(profile.pricing, id, errors);
   }
