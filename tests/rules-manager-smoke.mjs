@@ -16,6 +16,13 @@ if (!globalThis.crypto) globalThis.crypto = webcrypto;
 if (!globalThis.btoa) globalThis.btoa = (value) => Buffer.from(value, 'binary').toString('base64');
 if (!globalThis.atob) globalThis.atob = (value) => Buffer.from(value, 'base64').toString('binary');
 
+class MockKv {
+  constructor(seed = {}) { this.map = new Map(Object.entries(seed)); }
+  async get(key) { return this.map.has(key) ? this.map.get(key) : null; }
+  async put(key, value) { this.map.set(key, String(value)); }
+  async delete(key) { this.map.delete(key); }
+}
+
 const instructions = `High -> Manual check No. Medium -> Yes. Low -> Yes. rec. can never be High. ${'Preserve approved operational rules and exact brand mappings. '.repeat(30)}`;
 const knowledge = `## 7. Explicit RC I Football Leagues\n\n1. Test League - Testland\n\n## 8. End\n\nTennis SRL / Simulated Reality operational exception.\n${'Canonical knowledge line. '.repeat(150)}`;
 const bundle = {
@@ -101,13 +108,6 @@ function context(method, body, cookieValue = '') {
       body: body == null ? undefined : JSON.stringify(body),
     }),
   };
-}
-
-class MockKv {
-  constructor(seed = {}) { this.map = new Map(Object.entries(seed)); }
-  async get(key) { return this.map.has(key) ? this.map.get(key) : null; }
-  async put(key, value) { this.map.set(key, String(value)); }
-  async delete(key) { this.map.delete(key); }
 }
 
 function clone(value) { return JSON.parse(JSON.stringify(value)); }
