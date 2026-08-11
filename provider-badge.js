@@ -1,17 +1,31 @@
 (() => {
   let lastMeta = null;
+  let refreshPromise = null;
 
-  async function refresh() {
-    try {
-      const response = await fetch('/api/meta', { cache: 'no-store' });
-      const data = await response.json().catch(() => ({}));
-      if (data?.routing) {
-        lastMeta = data;
-        updateBadge();
+  patchFetchSignals();
+
+  function refresh() {
+    if (refreshPromise) return refreshPromise;
+    refreshPromise = (async () => {
+      try {
+        const response = await fetch('/api/meta', { cache: 'no-store' });
+        const data = await response.json().catch(() => ({}));
+        if (data?.routing) {
+          lastMeta = data;
+          syncUi();
+        }
+      } catch {
+        // Keep the existing badge if metadata is unavailable.
+      } finally {
+        refreshPromise = null;
       }
-    } catch {
-      // Keep the existing badge if metadata is unavailable.
-    }
+    })();
+    return refreshPromise;
+  }
+
+  function syncUi() {
+    updateBadge();
+    patchTelemetryCost();
   }
 
   function updateBadge() {
@@ -20,10 +34,13 @@
     const mode = window.RISK_ROUTING?.mode || routing.globalMode || 'auto';
     const label = routing.labels?.[mode] || routing.primary?.profile || 'managed';
     const pill = document.getElementById('routingModelPill') || document.querySelector('.model-pill');
-    if (pill) pill.textContent = `${capitalize(mode)} · ${label} · managed`;
+    const nextPill = `${capitalize(mode)} · ${label} · managed`;
+    if (pill && pill.textContent !== nextPill) pill.textContent = nextPill;
+
     const description = document.getElementById('routingDescription');
-    if (description && window.RISK_ROUTING?.admin) {
-      description.textContent = `${label}. This route is enforced globally for all users.`;
+    const nextDescription = `${label}. This route is enforced globally for all users.`;
+    if (description && window.RISK_ROUTING?.admin && description.textContent !== nextDescription) {
+      description.textContent = nextDescription;
     }
   }
 
@@ -34,20 +51,36 @@
     if (!panel) return;
     for (const metric of panel.querySelectorAll('.telemetry-metrics > span')) {
       const label = metric.querySelector('small')?.textContent?.trim();
-      if (label === 'Est. cost') {
-        const strong = metric.querySelector('strong');
-        if (strong) strong.textContent = 'Unavailable';
-        metric.title = 'At least one provider profile has no complete pricing configured.';
-      }
+      if (label !== 'Est. cost') continue;
+      const strong = metric.querySelector('strong');
+      if (strong && strong.textContent !== 'Unavailable') strong.textContent = 'Unavailable';
+      const title = 'At least one provider profile has no complete pricing configured.';
+      if (metric.title !== title) metric.title = title;
     }
   }
 
-  const observer = new MutationObserver(() => {
-    updateBadge();
-    patchTelemetryCost();
-  });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  function patchFetchSignals() {
+    const previousFetch = window.fetch.bind(window);
+    window.fetch = async (input, init = {}) => {
+      const response = await previousFetch(input, init);
+      const url = typeof input === 'string' ? input : input?.url || '';
+      const method = String(init?.method || input?.method || 'GET').toUpperCase();
+      const analyzeFinished = /\/api\/analyze(?:\?|$)/.test(url);
+      const adminChanged = /\/api\/admin(?:\?|$)/.test(url) && ['POST', 'PUT', 'DELETE'].includes(method);
+      if (analyzeFinished || adminChanged) {
+        // routing.js finishes its response-clone UI work in a microtask. Run on the
+        // following task so the provider label/cost patch sees the final DOM state.
+        setTimeout(syncUi, 0);
+      }
+      return response;
+    };
+  }
+
+  // Deliberately event-driven. A document-wide MutationObserver here can observe
+  // this script's own textContent writes and create an endless microtask loop.
   window.addEventListener('risk-provider-config-updated', refresh);
+  window.addEventListener('risk-routing-updated', syncUi);
+  window.addEventListener('risk-telemetry-updated', syncUi);
   window.addEventListener('focus', refresh);
   setTimeout(refresh, 50);
 
@@ -56,5 +89,5 @@
     return text ? text[0].toUpperCase() + text.slice(1) : text;
   }
 
-  window.RISK_PROVIDER_BADGE = { refresh };
+  window.RISK_PROVIDER_BADGE = { refresh, sync: syncUi };
 })();

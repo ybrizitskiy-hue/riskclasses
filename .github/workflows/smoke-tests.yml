@@ -40,3 +40,5 @@ jobs:
         run: node tests/admin-gate-smoke.mjs
       - name: Provider manager smoke tests
         run: node tests/provider-manager-smoke.mjs
+      - name: Provider badge browser smoke tests
+        run: node tests/provider-badge-browser-smoke.mjs
