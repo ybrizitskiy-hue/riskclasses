@@ -43,15 +43,15 @@
           <div>
             <span class="admin-modal-kicker">AI Providers · admin</span>
             <h3 id="providerManagerTitle">Provider routing & models</h3>
-            <p>Configure the models behind Auto, Economy and Quality. Cloudflare AI Gateway/BYOK is recommended so provider API keys never enter this website or KV.</p>
+            <p>Configure the models behind Auto, Economy and Quality. Cloudflare AI Gateway/BYOK keeps provider API keys out of this website and KV.</p>
           </div>
           <button id="providerManagerClose" type="button" class="admin-modal-close" aria-label="Close">×</button>
         </div>
         <div id="providerState" class="provider-state">Loading provider configuration…</div>
-        <div class="provider-note"><strong>Key security:</strong> this manager stores model names, routing, gateway address pieces, BYOK aliases and optional pricing only. Raw provider API keys stay in Cloudflare AI Gateway → Provider Keys / Secrets Store.</div>
+        <div class="provider-note"><strong>Key security:</strong> this manager stores model names, routing, upstream base URLs, BYOK aliases and optional pricing only. Raw provider API keys stay in Cloudflare AI Gateway → Provider Keys / Secrets Store. For a custom OpenAI-compatible service, enter its HTTPS root in <b>Base URL</b>; the site can create/update the Cloudflare Custom Provider when the admin API token is configured.</div>
 
         <section class="provider-section">
-          <div class="provider-section-head"><div><span class="section-label">Cloudflare AI Gateway</span><h4>Gateway address</h4></div><small>Used by Cloudflare REST and custom/provider-native profiles.</small></div>
+          <div class="provider-section-head"><div><span class="section-label">Cloudflare AI Gateway</span><h4>Gateway address</h4></div><small>Used by Cloudflare REST and provider-native/custom profiles.</small></div>
           <div class="provider-grid">
             <div class="provider-field"><label for="providerAccountId">Account ID</label><input id="providerAccountId" placeholder="Cloudflare account ID" /></div>
             <div class="provider-field"><label for="providerGatewayId">Gateway ID</label><input id="providerGatewayId" placeholder="default" /></div>
@@ -61,7 +61,7 @@
 
         <section class="provider-section">
           <div class="provider-section-head">
-            <div><span class="section-label">Provider profiles</span><h4>Models & compatibility</h4></div>
+            <div><span class="section-label">Provider profiles</span><h4>Models, address & compatibility</h4></div>
             <button id="providerAddBtn" type="button" class="btn ghost small">Add compatible provider</button>
           </div>
           <div id="providerProfiles" class="provider-profiles"></div>
@@ -87,7 +87,13 @@
     overlay.addEventListener('click', (event) => { if (event.target === overlay) closeManager(); });
     document.getElementById('providerManagerClose').addEventListener('click', closeManager);
     document.getElementById('providerAddBtn').addEventListener('click', addProfile);
-    document.getElementById('providerReloadBtn').addEventListener('click', () => { if (current) { draft = clone(current.config); dirty = false; renderAll(); scheduleValidate(0); } });
+    document.getElementById('providerReloadBtn').addEventListener('click', () => {
+      if (!current) return;
+      draft = clone(current.config);
+      dirty = false;
+      renderAll();
+      scheduleValidate(0);
+    });
     document.getElementById('providerPublishBtn').addEventListener('click', publish);
     document.getElementById('providerAccountId').addEventListener('input', (event) => updateCloudflare('accountId', event.target.value));
     document.getElementById('providerGatewayId').addEventListener('input', (event) => updateCloudflare('gatewayId', event.target.value));
@@ -147,8 +153,10 @@
   function renderEnvironment() {
     const env = current?.environment || {};
     document.getElementById('providerEnv').innerHTML = [
-      pill(`OPENAI_API_KEY ${env.openAiKeyConfigured ? 'ready' : 'missing'}`, env.openAiKeyConfigured),
-      pill(`CF_AI_GATEWAY_TOKEN ${env.cloudflareGatewayTokenConfigured ? 'ready' : 'missing'}`, env.cloudflareGatewayTokenConfigured),
+      pill(`OpenAI direct key ${env.openAiKeyConfigured ? 'ready' : 'missing'}`, env.openAiKeyConfigured),
+      pill(`Gateway run token ${env.cloudflareGatewayTokenConfigured ? 'ready' : 'missing'}`, env.cloudflareGatewayTokenConfigured),
+      pill(`Gateway admin token ${env.cloudflareGatewayAdminTokenConfigured ? 'ready' : 'missing'}`, env.cloudflareGatewayAdminTokenConfigured),
+      pill(`Admin signing secret ${env.adminSigningSecretConfigured ? 'ready' : 'fallback'}`, env.adminSigningSecretConfigured),
       pill(`Effective account ${escapeHtml(draft.cloudflare?.accountId || env.envAccountId || 'not set')}`, Boolean(draft.cloudflare?.accountId || env.envAccountId)),
       pill(`Gateway ${escapeHtml(draft.cloudflare?.gatewayId || env.effectiveGatewayId || 'default')}`, true),
     ].join('');
@@ -163,22 +171,28 @@
   function profileCard(profile, index) {
     const cap = profile.capabilities || {};
     const price = profile.pricing || {};
-    const customFields = profile.transport === 'cloudflare-provider';
+    const providerFields = profile.transport === 'cloudflare-provider';
+    const managedCustom = providerFields && String(profile.providerSlug || '').startsWith('custom-');
     return `
       <div class="provider-card" data-card-index="${index}">
         <div class="provider-card-head">
           <div><strong>${escapeHtml(profile.label || profile.id || 'Provider')}</strong><small> · ${escapeHtml(profile.id || '')}</small></div>
-          <div class="provider-card-actions"><button type="button" class="btn ghost small" data-action="test" data-index="${index}">Test</button><button type="button" class="btn danger small" data-action="remove" data-index="${index}">Remove</button></div>
+          <div class="provider-card-actions">
+            ${managedCustom && profile.baseUrl ? `<button type="button" class="btn ghost small" data-action="sync" data-index="${index}">Sync address</button>` : ''}
+            <button type="button" class="btn ghost small" data-action="test" data-index="${index}">Test</button>
+            <button type="button" class="btn danger small" data-action="remove" data-index="${index}">Remove</button>
+          </div>
         </div>
         <div class="provider-profile-grid">
           ${field(index, 'label', 'Label', profile.label)}
           ${field(index, 'id', 'Profile ID', profile.id)}
-          ${selectField(index, 'transport', 'Transport', profile.transport, [['openai-direct','Direct OpenAI'],['cloudflare-rest','Cloudflare REST'],['cloudflare-provider','Cloudflare provider/custom']])}
+          ${selectField(index, 'transport', 'Transport', profile.transport, [['openai-direct','Direct OpenAI'],['cloudflare-rest','Cloudflare REST / Unified'],['cloudflare-provider','Cloudflare provider/custom']])}
           ${selectField(index, 'protocol', 'Protocol', profile.protocol, [['responses','Responses'],['chat-completions','Chat Completions']])}
           ${field(index, 'model', 'Model', profile.model, 'provider/model or model-name', 'provider-span-2')}
           ${field(index, 'byokAlias', 'BYOK alias', profile.byokAlias, 'default / production')}
-          ${field(index, 'providerSlug', 'Provider slug', profile.providerSlug, 'openai / groq / custom-name', '', !customFields)}
-          ${field(index, 'pathPrefix', 'Path prefix', profile.pathPrefix, 'v1', '', !customFields)}
+          ${field(index, 'providerSlug', 'Provider slug', profile.providerSlug, 'openai / groq / custom-myprovider', '', !providerFields)}
+          ${field(index, 'baseUrl', 'Base URL', profile.baseUrl, 'https://api.example.com', 'provider-span-2', !managedCustom)}
+          ${field(index, 'pathPrefix', 'Provider path prefix', profile.pathPrefix, 'v1', '', !providerFields)}
         </div>
         <div class="provider-capabilities">
           ${capBox(index,'vision','Vision',cap.vision)}${capBox(index,'jsonSchema','JSON schema',cap.jsonSchema)}${capBox(index,'reasoning','Reasoning',cap.reasoning)}${capBox(index,'webSearch','Web search',cap.webSearch)}${capBox(index,'promptCache','Prompt cache',cap.promptCache)}${capBox(index,'store','store:false',cap.store)}
@@ -186,7 +200,7 @@
         <div class="provider-pricing">
           ${priceField(index,'input','Input $ / 1M',price.input)}${priceField(index,'cached','Cached $ / 1M',price.cached)}${priceField(index,'output','Output $ / 1M',price.output)}${priceField(index,'webSearch','Search $ / call',price.webSearch)}
         </div>
-        <div id="providerTest${index}" class="provider-test-result">Endpoint: ${escapeHtml(endpointPreview(profile))}</div>
+        <div id="providerTest${index}" class="provider-test-result">Endpoint: ${escapeHtml(endpointPreview(profile))}${managedCustom && profile.baseUrl ? ` · Upstream: ${escapeHtml(profile.baseUrl)}` : ''}</div>
       </div>
     `;
   }
@@ -198,9 +212,7 @@
       const route = draft.routes?.[mode] || {};
       return `<div class="provider-route-row"><strong>${capitalize(mode)}</strong>${routeSelect(mode,'extraction','Extraction',route.extraction,options(false))}${routeSelect(mode,'primary','Primary',route.primary,options(false))}${routeSelect(mode,'research','Research',route.research,options(true))}${routeSelect(mode,'escalation','Escalation',route.escalation,options(true))}</div>`;
     }).join('');
-    root.querySelectorAll('select').forEach((select) => {
-      select.value = select.dataset.value || '';
-    });
+    root.querySelectorAll('select').forEach((select) => { select.value = select.dataset.value || ''; });
   }
 
   function routeSelect(mode, role, label, value, options) {
@@ -233,7 +245,7 @@
     else if (event.target.dataset.path) profile[event.target.dataset.path] = event.target.value;
     else return;
     dirty = true;
-    if (event.target.dataset.path === 'transport') renderProfiles();
+    if (['transport','providerSlug'].includes(event.target.dataset.path)) renderProfiles();
     renderRoutes();
     renderEnvironment();
     scheduleValidate();
@@ -256,6 +268,7 @@
       return;
     }
     if (button.dataset.action === 'test') await testProfile(index, button);
+    if (button.dataset.action === 'sync') await syncProfile(index, button);
   }
 
   function handleRouteEdit(event) {
@@ -288,7 +301,8 @@
       transport: 'cloudflare-provider',
       protocol: 'responses',
       model: '',
-      providerSlug: 'custom-provider',
+      providerSlug: `custom-provider-${n}`,
+      baseUrl: '',
       pathPrefix: 'v1',
       byokAlias: 'default',
       capabilities: { vision:false, jsonSchema:true, reasoning:false, webSearch:false, promptCache:false, store:false },
@@ -300,6 +314,29 @@
     scheduleValidate(0);
   }
 
+  async function syncProfile(index, button) {
+    if (!draft || busy) return;
+    const result = document.getElementById(`providerTest${index}`);
+    setBusy(true);
+    button.textContent = 'Syncing…';
+    result.textContent = 'Synchronizing the HTTPS Base URL with Cloudflare Custom Providers…';
+    try {
+      const response = await fetch('/api/providers', {
+        method:'POST', headers:{'content-type':'application/json'},
+        body:JSON.stringify({ action:'sync', profileId:draft.profiles[index].id, config:draft }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(data.error || 'Address sync failed.');
+      const action = data.sync?.results?.[0]?.action || 'synchronized';
+      result.textContent = `✓ Cloudflare Custom Provider address ${action}: ${draft.profiles[index].baseUrl}`;
+    } catch (error) {
+      result.textContent = `✕ ${error.message || 'Address sync failed.'}`;
+    } finally {
+      button.textContent = 'Sync address';
+      setBusy(false);
+    }
+  }
+
   async function testProfile(index, button) {
     if (!draft || busy) return;
     setBusy(true);
@@ -308,12 +345,13 @@
     result.textContent = 'Running a small structured-output request…';
     try {
       const response = await fetch('/api/providers', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action:'test', profileId:draft.profiles[index].id, config:draft }),
+        method:'POST', headers:{'content-type':'application/json'},
+        body:JSON.stringify({ action:'test', profileId:draft.profiles[index].id, config:draft }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) throw new Error(data.error || 'Provider test failed.');
-      result.textContent = `✓ Connection + JSON output passed · ${data.endpoint || endpointPreview(draft.profiles[index])}`;
+      const syncText = data.sync?.changed ? ' · address synchronized' : '';
+      result.textContent = `✓ Connection + JSON output passed${syncText} · ${data.endpoint || endpointPreview(draft.profiles[index])}`;
     } catch (error) {
       result.textContent = `✕ ${error.message || 'Provider test failed.'}`;
     } finally {
@@ -355,7 +393,7 @@
 
   async function publish() {
     if (!draft || busy || !dirty || !validation?.valid) return;
-    if (!confirm('Publish this AI provider configuration globally? New analyses will immediately use these routes after KV propagation.')) return;
+    if (!confirm('Publish this AI provider configuration globally? New analyses will use these routes after KV propagation.')) return;
     setBusy(true);
     const button = document.getElementById('providerPublishBtn');
     button.textContent = 'Publishing…';
@@ -371,7 +409,8 @@
       validation = data.validation;
       dirty = false;
       renderAll();
-      setState(`Published ${draft.version}. New analyses use this provider routing globally.`, 'ok');
+      const syncCount = (data.sync?.results || []).filter((item) => item.action !== 'unchanged').length;
+      setState(`Published ${draft.version}. New analyses use this routing globally.${syncCount ? ` ${syncCount} custom provider address${syncCount === 1 ? '' : 'es'} synchronized.` : ''}`, 'ok');
       window.dispatchEvent(new CustomEvent('risk-provider-config-updated', { detail: data }));
       window.RISK_PROVIDER_BADGE?.refresh?.();
     } catch (error) {
