@@ -23,9 +23,20 @@ export async function onRequestGet(context) {
   return Response.json({
     ok,
     service: 'risk-class-analyst-v2',
-    model: context.env.OPENAI_MODEL || 'gpt-5.6-terra',
-    reasoning: 'medium',
-    webSearch: true,
+    routing: {
+      default: 'auto',
+      modes: ['auto', 'economy', 'quality'],
+      extraction: { model: context.env.OPENAI_EXTRACT_MODEL || 'gpt-5.6-luna', reasoning: 'low' },
+      economy: { model: context.env.OPENAI_LUNA_MODEL || 'gpt-5.6-luna', reasoning: 'medium' },
+      auto: {
+        primaryModel: context.env.OPENAI_LUNA_MODEL || 'gpt-5.6-luna',
+        escalationModel: context.env.OPENAI_TERRA_MODEL || 'gpt-5.6-terra',
+        reasoning: 'medium',
+      },
+      quality: { model: context.env.OPENAI_TERRA_MODEL || 'gpt-5.6-terra', reasoning: 'medium' },
+      promptCacheRetention: '24h',
+      webSearchOnlyForUnresolved: true,
+    },
     apiKeyConfigured,
     rulesConfigured,
     rulesVersion,
