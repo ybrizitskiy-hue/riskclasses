@@ -48,23 +48,10 @@ export async function onRequestDelete() {
   return json({ ok: true, admin: false }, 200, { 'set-cookie': clearAdminCookie() });
 }
 
-export async function onRequestOptions() {
-  return new Response(null, { status: 204, headers: corsHeaders() });
-}
-
-function corsHeaders() {
-  return {
-    'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET,POST,DELETE,OPTIONS',
-    'access-control-allow-headers': 'content-type',
-  };
-}
-
 function json(value, status = 200, extraHeaders = {}) {
   return Response.json(value, {
     status,
     headers: {
-      ...corsHeaders(),
       'cache-control': 'no-store',
       ...extraHeaders,
     },
