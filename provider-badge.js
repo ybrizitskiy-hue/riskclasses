@@ -2,6 +2,8 @@
   let lastMeta = null;
   let refreshPromise = null;
 
+  patchFetchSignals();
+
   function refresh() {
     if (refreshPromise) return refreshPromise;
     refreshPromise = (async () => {
@@ -55,6 +57,23 @@
       const title = 'At least one provider profile has no complete pricing configured.';
       if (metric.title !== title) metric.title = title;
     }
+  }
+
+  function patchFetchSignals() {
+    const previousFetch = window.fetch.bind(window);
+    window.fetch = async (input, init = {}) => {
+      const response = await previousFetch(input, init);
+      const url = typeof input === 'string' ? input : input?.url || '';
+      const method = String(init?.method || input?.method || 'GET').toUpperCase();
+      const analyzeFinished = /\/api\/analyze(?:\?|$)/.test(url);
+      const adminChanged = /\/api\/admin(?:\?|$)/.test(url) && ['POST', 'PUT', 'DELETE'].includes(method);
+      if (analyzeFinished || adminChanged) {
+        // routing.js finishes its response-clone UI work in a microtask. Run on the
+        // following task so the provider label/cost patch sees the final DOM state.
+        setTimeout(syncUi, 0);
+      }
+      return response;
+    };
   }
 
   // Deliberately event-driven. A document-wide MutationObserver here can observe
