@@ -17,7 +17,7 @@
   function updateBadge() {
     const routing = lastMeta?.routing;
     if (!routing) return;
-    const mode = routing.globalMode || 'auto';
+    const mode = window.RISK_ROUTING?.mode || routing.globalMode || 'auto';
     const label = routing.labels?.[mode] || routing.primary?.profile || 'managed';
     const pill = document.getElementById('routingModelPill') || document.querySelector('.model-pill');
     if (pill) pill.textContent = `${capitalize(mode)} · ${label} · managed`;
