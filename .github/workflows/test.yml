@@ -29,6 +29,7 @@ jobs:
           node --check functions/lib/cloudflare-provider-admin.js
           node --check functions/lib/deterministic.js
           node --check functions/lib/rules-bundle.js
+          node --check tests/chat-web-search-smoke.mjs
       - name: Routing regression
         run: node tests/routing-smoke.mjs
       - name: Admin routing regression
@@ -37,6 +38,8 @@ jobs:
         run: node tests/rules-manager-smoke.mjs
       - name: Provider manager regression
         run: node tests/provider-manager-smoke.mjs
+      - name: Chat web search regression
+        run: node tests/chat-web-search-smoke.mjs
       - name: Provider badge browser regression
         run: node tests/provider-badge-browser-smoke.mjs
       - name: Provider panel stability regression

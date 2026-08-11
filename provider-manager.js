@@ -206,6 +206,7 @@
           ${field(index, 'providerSlug', 'Provider slug', profile.providerSlug, 'openai / groq / custom-myprovider', '', !providerFields)}
           ${field(index, 'baseUrl', 'Base URL', profile.baseUrl, 'https://api.example.com', 'provider-span-2', !managedCustom)}
           ${field(index, 'pathPrefix', 'Provider path prefix', profile.pathPrefix, 'v1', '', !providerFields)}
+          ${webSearchModeField(index, profile)}
         </div>
         <div class="provider-capabilities">
           ${capBox(index,'vision','Vision',cap.vision)}${capBox(index,'jsonSchema','JSON schema',cap.jsonSchema)}${capBox(index,'reasoning','Reasoning',cap.reasoning)}${capBox(index,'webSearch','Web search',cap.webSearch)}${capBox(index,'promptCache','Prompt cache',cap.promptCache)}${capBox(index,'store','store:false',cap.store)}
@@ -240,6 +241,15 @@
     return `<div class="provider-field"><label>${label}</label><select data-index="${index}" data-path="${path}">${choices.map(([key,text]) => `<option value="${key}" ${value === key ? 'selected' : ''}>${text}</option>`).join('')}</select></div>`;
   }
 
+  function webSearchModeField(index, profile) {
+    const enabled = Boolean(profile.capabilities?.webSearch);
+    const value = profile.webSearchMode || (profile.protocol === 'chat-completions' ? 'chat-tools' : 'responses');
+    const choices = profile.protocol === 'chat-completions'
+      ? [['chat-tools','Chat built-in web_search tool'],['chat-options','Chat web_search_options'],['openrouter-plugin','OpenRouter/compatible web plugin'],['native','Provider-native / automatic']]
+      : [['responses','Responses web_search tool'],['native','Provider-native / automatic']];
+    return `<div class="provider-field provider-span-2"><label>Web search adapter</label><select data-index="${index}" data-path="webSearchMode" ${enabled ? '' : 'disabled'}>${choices.map(([key,text]) => `<option value="${key}" ${value === key ? 'selected' : ''}>${text}</option>`).join('')}</select></div>`;
+  }
+
   function priceField(index, key, label, value) {
     return `<div class="provider-field"><label>${label}</label><input type="number" min="0" step="0.0001" data-index="${index}" data-price="${key}" value="${value == null ? '' : escapeHtml(value)}" placeholder="optional" /></div>`;
   }
@@ -254,20 +264,32 @@
     if (!Number.isInteger(index) || !draft.profiles[index]) return;
     const profile = draft.profiles[index];
     const path = event.target.dataset.path || '';
-    if (event.target.dataset.cap) profile.capabilities[event.target.dataset.cap] = Boolean(event.target.checked);
+    const capKey = event.target.dataset.cap || '';
+    if (capKey) profile.capabilities[capKey] = Boolean(event.target.checked);
     else if (event.target.dataset.price) profile.pricing[event.target.dataset.price] = event.target.value === '' ? null : Number(event.target.value);
     else if (path) profile[path] = event.target.value;
     else return;
+
+    if (path === 'protocol') {
+      if (profile.protocol === 'chat-completions' && (!profile.webSearchMode || profile.webSearchMode === 'responses')) profile.webSearchMode = 'chat-tools';
+      if (profile.protocol === 'responses' && ['chat-tools','chat-options','openrouter-plugin'].includes(profile.webSearchMode)) profile.webSearchMode = 'responses';
+    }
+    if (capKey === 'webSearch' && profile.capabilities.webSearch && !profile.webSearchMode) {
+      profile.webSearchMode = profile.protocol === 'chat-completions' ? 'chat-tools' : 'responses';
+    }
+
     dirty = true;
     persistSessionDraft();
 
     // Avoid rebuilding unrelated parts of the modal on every keystroke. Full card
-    // rebuilds are only needed when a select/provider slug changes field visibility.
-    if (event.type === 'change' && ['transport','providerSlug'].includes(path)) {
+    // rebuilds are only needed when field visibility or compatibility controls change.
+    if (event.type === 'change' && ['transport','providerSlug','protocol'].includes(path)) {
       renderProfiles();
       renderRoutes();
     } else if (event.type === 'change' && ['id','label'].includes(path)) {
       renderRoutes();
+    } else if (event.type === 'change' && capKey === 'webSearch') {
+      renderProfiles();
     }
     scheduleValidate();
   }
@@ -329,6 +351,7 @@
       baseUrl: '',
       pathPrefix: 'v1',
       byokAlias: 'default',
+      webSearchMode: 'responses',
       capabilities: { vision:false, jsonSchema:true, reasoning:false, webSearch:false, promptCache:false, store:false },
       pricing: { input:null, cached:null, output:null, webSearch:null },
     });
@@ -367,7 +390,9 @@
     setBusy(true);
     const result = document.getElementById(`providerTest${index}`);
     button.textContent = 'Testing…';
-    result.textContent = 'Running a small structured-output request…';
+    result.textContent = draft.profiles[index].capabilities?.webSearch
+      ? 'Running structured-output + web-search compatibility test…'
+      : 'Running a small structured-output request…';
     try {
       const response = await fetch('/api/providers', {
         method:'POST', headers:{'content-type':'application/json'},
@@ -376,7 +401,8 @@
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) throw new Error(data.error || 'Provider test failed.');
       const syncText = data.sync?.changed ? ' · address synchronized' : '';
-      result.textContent = `✓ Connection + JSON output passed${syncText} · ${data.endpoint || endpointPreview(draft.profiles[index])}`;
+      const webText = data.webSearchRequested ? ` · web adapter ${data.webSearchMode || 'enabled'}` : '';
+      result.textContent = `✓ Connection + JSON output passed${syncText}${webText} · ${data.endpoint || endpointPreview(draft.profiles[index])}`;
     } catch (error) {
       result.textContent = `✕ ${error.message || 'Provider test failed.'}`;
     } finally {
@@ -532,7 +558,7 @@
   function pill(text, ok) { return `<span class="${ok ? 'ok' : 'warn'}">${text}</span>`; }
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
   function capitalize(value) { const text=String(value||''); return text ? text[0].toUpperCase()+text.slice(1) : text; }
-  function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#039;'}[ch])); }
+  function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch])); }
 
   window.RISK_PROVIDERS = { open: openManager, reload: loadCurrent };
 })();

@@ -60,9 +60,18 @@ export async function onRequestPost(context) {
     if (!sync.ok) return json({ ok: false, error: `Could not synchronize provider address before test. ${sync.error}`, sync }, sync.status || 502);
   }
 
+  const webSearchRequested = Boolean(profile.capabilities?.webSearch);
   const input = [
-    { role: 'developer', content: [{ type: 'input_text', text: 'This is a connectivity test. Return exactly the requested JSON object.' }] },
-    { role: 'user', content: [{ type: 'input_text', text: 'Return {"status":"ok"}.' }] },
+    { role: 'developer', content: [{ type: 'input_text', text: 'This is a connectivity and compatibility test. Return exactly the requested JSON object.' }] },
+    {
+      role: 'user',
+      content: [{
+        type: 'input_text',
+        text: webSearchRequested
+          ? 'Use your configured web-search capability for one small current lookup, then return {"status":"ok"}.'
+          : 'Return {"status":"ok"}.',
+      }],
+    },
   ];
   const result = await callAiJson({
     env: context.env,
@@ -73,7 +82,7 @@ export async function onRequestPost(context) {
     input,
     schema: TEST_SCHEMA,
     schemaName: 'provider_connectivity_test',
-    useWeb: false,
+    useWeb: webSearchRequested,
     promptCacheKey: '',
   });
   if (!result.ok || result.result?.status !== 'ok') return json({ ok: false, error: result.error || 'Provider returned an unexpected test result.', telemetry: result.telemetry || null, sync }, result.status || 502);
@@ -83,6 +92,8 @@ export async function onRequestPost(context) {
     endpoint: publicProfileStatus(context.env, config, profile).endpoint,
     telemetry: result.telemetry || null,
     sync,
+    webSearchRequested,
+    webSearchMode: webSearchRequested ? (profile.webSearchMode || (profile.protocol === 'chat-completions' ? 'chat-tools' : 'responses')) : 'disabled',
   });
 }
 
