@@ -27,6 +27,7 @@ jobs:
           node --check functions/api/analyze.js
           node --check functions/api/analyze-core.js
           node --check functions/api/admin.js
+          node --check functions/api/rules.js
           node --check functions/api/providers.js
           node --check functions/api/reasoning.js
           node --check functions/api/_middleware.js
@@ -37,7 +38,6 @@ jobs:
           node --check functions/lib/reasoning-config.js
           node --check functions/lib/cloudflare-provider-admin.js
           node --check functions/lib/deterministic.js
-          node --check functions/lib/provider-tennis-rules.js
           node --check functions/lib/result-policy.js
           node --check functions/lib/input-contract.js
           node --check functions/lib/rules-bundle.js
@@ -48,6 +48,7 @@ jobs:
           node --check tests/event-id-global-smoke.mjs
           node --check tests/event-id-analyze-smoke.mjs
           node --check tests/provider-tennis-round-smoke.mjs
+          node --check tests/rules-manager-smoke.mjs
           node --check tests/routing-smoke.mjs
       - name: Routing regression smoke tests
         run: node tests/routing-smoke.mjs
@@ -55,10 +56,12 @@ jobs:
         run: node tests/event-id-global-smoke.mjs
       - name: Event ID analysis pipeline smoke tests
         run: node tests/event-id-analyze-smoke.mjs
-      - name: Provider Tennis and round-review smoke tests
+      - name: JSON-owned Tennis and review-policy smoke tests
         run: node tests/provider-tennis-round-smoke.mjs
       - name: Admin gate smoke tests
         run: node tests/admin-gate-smoke.mjs
+      - name: Rules manager smoke tests
+        run: node tests/rules-manager-smoke.mjs
       - name: Provider manager smoke tests
         run: node tests/provider-manager-smoke.mjs
       - name: Chat web search smoke tests

@@ -184,14 +184,17 @@ function normalizeResultRow(row) {
   const hasRec = brandValues.some((x) => /\brec\./i.test(x));
   const hasMissing = brandValues.some((x) => /missing rule|manual check/i.test(x));
 
-  // Client-side guardrail mirrors the backend, including the approved
-  // High + manual round-check exception for Tennis/Snooker without a round.
+  // Client guardrail only enforces generic confidence consistency. Review labels
+  // such as Stage come from the managed rules JSON through the API response.
   let finalConfidence = confidence;
   if (hasMissing) finalConfidence = 'Low';
   else if (hasRec && finalConfidence === 'High') finalConfidence = 'Medium';
-  const manualCheck = finalConfidence !== 'High' || hasRec || hasMissing || Boolean(manualCheckReason);
+  const manualCheck = Boolean(row.manualCheck) || finalConfidence !== 'High' || hasRec || hasMissing;
+  let manualCheckType = String(row.manualCheckType || '').trim();
+  if (!manualCheck) manualCheckType = 'No';
+  else if (!manualCheckType || manualCheckType === 'No') manualCheckType = 'Yes';
 
-  return { ...row, confidence: finalConfidence, manualCheck, manualCheckReason, manualCheckType: manualCheckReason ? 'Stage' : (manualCheck ? 'Yes' : 'No') };
+  return { ...row, confidence: finalConfidence, manualCheck, manualCheckReason, manualCheckType };
 }
 
 function sourceChips(sources) {

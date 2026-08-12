@@ -1,23 +1,6 @@
 import { resolveGlobalBrands } from './input-contract.js';
 
-export const ROUND_REVIEW_REASON = 'Stage/round not provided — High confidence retained; stage check required.';
-
-const ROUND_CONTEXT_PATTERNS = [
-  /\bq[1-4]\b/i,
-  /\b(?:first|second|third|fourth|opening)\s+round\b/i,
-  /\b(?:round|rnd)\s*(?:of\s*)?(?:1|2|3|4|8|16|32|64|128)\b/i,
-  /\b(?:r|rd)\s*[-.]?\s*(?:1|2|3|4|8|16|32|64|128)\b/i,
-  /\b(?:r16|r32|r64|r128|qf|sf)\b/i,
-  /\b(?:quarter|semi)[ -]?finals?\b/i,
-  /\b(?:1\/8|1\/4|1\/2)\s*finals?\b/i,
-  /\blast\s+(?:8|16|32|64|128)\b/i,
-  /\bfinal\b/i,
-  /(?:^|[-–—,:])\s*finals?\b/i,
-  /\b(?:group|round[- ]?robin)\s+stage\b/i,
-  /\bstage\s+\d+\b/i,
-];
-
-export function enforceResultPolicy(row, input = row) {
+export function enforceResultPolicy(row, input = row, policies = []) {
   const resolved = resolveGlobalBrands(row);
   const values = [resolved?.dazn, resolved?.quinnbet, resolved?.nti].map((value) => String(value || ''));
   const hasRec = values.some((value) => /\brec\./i.test(value));
@@ -26,49 +9,69 @@ export function enforceResultPolicy(row, input = row) {
   if (hasMissing) confidence = 'Low';
   else if (hasRec && confidence === 'High') confidence = 'Medium';
 
-  let manualCheck = confidence !== 'High' || hasRec || hasMissing;
+  let manualCheck = Boolean(resolved?.manualCheck) || confidence !== 'High' || hasRec || hasMissing;
+  let manualCheckType = String(resolved?.manualCheckType || '').trim();
   let manualCheckReason = String(resolved?.manualCheckReason || '').trim();
-  let basis = String(resolved?.basis || '').trim();
+  let needsEscalation = Boolean(resolved?.needsEscalation);
+  let escalationReason = String(resolved?.escalationReason || '');
 
-  const roundReview = needsRoundReview(input);
-  if (roundReview) {
-    manualCheck = true;
-    manualCheckReason = appendReason(manualCheckReason, ROUND_REVIEW_REASON);
+  for (const policy of Array.isArray(policies) ? policies : []) {
+    if (!matchesPolicy(policy, input, { confidence })) continue;
+    manualCheck = policy.manualCheck !== false;
+    if (policy.manualCheckType) manualCheckType = String(policy.manualCheckType);
+    if (policy.reason) manualCheckReason = appendReason(manualCheckReason, String(policy.reason));
+    if (policy.suppressEscalationWhenHigh && confidence === 'High' && !hasRec && !hasMissing) {
+      needsEscalation = false;
+      escalationReason = '';
+    }
   }
+
+  if (!manualCheck) manualCheckType = 'No';
+  else if (!manualCheckType || manualCheckType === 'No') manualCheckType = 'Yes';
 
   return {
     ...resolved,
-    basis,
     confidence,
     manualCheck,
+    manualCheckType,
     manualCheckReason,
-    // A missing round is an explicit operational review flag, not material class
-    // uncertainty and therefore must not trigger another AI stage.
-    needsEscalation: roundReview && confidence === 'High' && !hasRec && !hasMissing
-      ? false
-      : Boolean(resolved?.needsEscalation),
-    escalationReason: roundReview && confidence === 'High' && !hasRec && !hasMissing
-      ? ''
-      : String(resolved?.escalationReason || ''),
+    needsEscalation,
+    escalationReason,
   };
 }
 
-export function needsRoundReview(input) {
-  const sport = normalizeSport(input?.sport);
-  if (sport !== 'tennis' && sport !== 'snooker') return false;
+export function matchesPolicy(policy, input, result = {}) {
+  if (!policy || typeof policy !== 'object') return false;
+  const confidences = Array.isArray(policy.confidences) ? policy.confidences : [];
+  if (confidences.length && !confidences.includes(String(result?.confidence || ''))) return false;
 
-  const competition = String(input?.competition || '').trim();
-  if (!competition) return false;
-  if (/\boutright\b|\btournament winner\b|\bchampionship winner\b/i.test(competition)) return false;
-  if (sport === 'tennis' && /\b(srl|simulated reality|virtuals?|simulated)\b/i.test(competition)) return false;
+  const sports = (Array.isArray(policy.sports) ? policy.sports : []).map(normalize);
+  if (sports.length && !sports.includes(normalize(input?.sport || ''))) return false;
 
-  return !hasExplicitRoundContext(competition);
+  const providers = (Array.isArray(policy.providers) ? policy.providers : []).map(normalize);
+  if (providers.length && !providers.includes(normalize(input?.dataProvider || ''))) return false;
+
+  const field = String(policy.field || 'competition');
+  const value = String(input?.[field] ?? '');
+  const excluded = compile(policy.excludePatterns);
+  if (excluded.some((pattern) => pattern.test(value))) return false;
+
+  const required = compile(policy.requirePatterns);
+  if (required.length && !required.every((pattern) => pattern.test(value))) return false;
+
+  const missing = compile(policy.whenMissingPatterns);
+  if (missing.length && missing.some((pattern) => pattern.test(value))) return false;
+
+  return Boolean(confidences.length || sports.length || providers.length || required.length || missing.length || excluded.length);
 }
 
-export function hasExplicitRoundContext(value) {
-  const competition = String(value || '').trim();
-  if (!competition) return false;
-  return ROUND_CONTEXT_PATTERNS.some((pattern) => pattern.test(competition));
+function compile(values) {
+  const output = [];
+  for (const value of Array.isArray(values) ? values : []) {
+    if (typeof value !== 'string' || !value) continue;
+    try { output.push(new RegExp(value, 'i')); } catch { /* validation handles it */ }
+  }
+  return output;
 }
 
 function appendReason(existing, reason) {
@@ -78,7 +81,7 @@ function appendReason(existing, reason) {
   return `${text}; ${reason}`;
 }
 
-function normalizeSport(value) {
+function normalize(value) {
   return String(value || '')
     .trim()
     .toLowerCase()

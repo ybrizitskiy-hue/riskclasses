@@ -32,7 +32,7 @@
       <div class="hero-copy">
         <span class="kicker">Internal risk operations</span>
         <h1>Drop a screenshot.<br><span>Get risk classes.</span></h1>
-        <p>Uses the same approved rules, provider-aware tennis mappings, brand inheritance, confidence thresholds, and review behavior as the production Custom GPT.</p>
+        <p>Uses the same managed rules JSON, provider-aware matching, brand inheritance, confidence thresholds, and review behavior as the production Custom GPT.</p>
       </div>
       <div class="hero-proof" aria-label="Workflow">
         <div class="proof-step"><span>01</span><strong>Read exact rows</strong><small>Names and IDs stay exactly as shown</small></div>
@@ -94,7 +94,7 @@
           </div>
         </div>
         <div class="threshold-stack">
-          <div class="threshold-row high"><span class="threshold-dot"></span><div><strong>High</strong><p>Classes confirmed; missing Tennis/Snooker round is marked Stage.</p></div><span class="review-no">Usually no check</span></div>
+          <div class="threshold-row high"><span class="threshold-dot"></span><div><strong>High</strong><p>Classes confirmed; review labels follow the active managed rules JSON.</p></div><span class="review-no">Usually no check</span></div>
           <div class="threshold-row medium"><span class="threshold-dot"></span><div><strong>Medium</strong><p>Recommendation or researched analogy.</p></div><span class="review-yes">Check</span></div>
           <div class="threshold-row low"><span class="threshold-dot"></span><div><strong>Low</strong><p>Material uncertainty or missing rule.</p></div><span class="review-yes">Check</span></div>
         </div>
@@ -103,10 +103,10 @@
           <li><span>✓</span> Always returns DAZN, Quinnbet and NTI</li>
           <li><span>✓</span> Global fills brands without an override</li>
           <li><span>✓</span> U = Betradar · BG = Betgenius · DB = Databet</li>
-          <li><span>✓</span> Missing Tennis/Snooker exact round = High + Stage check</li>
+          <li><span>✓</span> Stage/review checks are controlled by managed rules JSON</li>
           <li><span>✓</span> Any <code>rec.</code> can never be High</li>
-          <li><span>✓</span> Tennis SRL / Simulated Reality = H / H / H</li>
-          <li><span>✓</span> Football RC I list checked before analogy</li>
+          <li><span>✓</span> Sport and provider RC mappings are controlled by managed rules JSON</li>
+          <li><span>✓</span> Operational exceptions and exact lists come from managed rules JSON</li>
         </ul>
       </aside>
     </section>

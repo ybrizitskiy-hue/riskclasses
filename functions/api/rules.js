@@ -105,7 +105,7 @@ async function requireAdmin(context) {
 }
 
 function gptGuide(version) {
-  return `You are editing the complete Risk Class rules bundle currently at version ${version || 'unknown'}. Apply only the requested rule changes. Preserve all unrelated instructions, knowledge, deterministic rules, IDs, regexes and brand mappings exactly. Keep schemaVersion=1. Every deterministic rule must return confirmed RC A-I values for DAZN, Quinnbet and NTI. Do not remove the tennis-srl operational override unless explicitly instructed; while active it must remain RC H / RC H / RC H. Preserve the final-answer confidence doctrine: High => Manual check No; Medium/Low => Yes; rec. can never be High; missing rule => Low/Yes. Return the COMPLETE updated JSON file, not a patch, explanation, markdown fence or abbreviated excerpt. Update the version field to a new meaningful version.`;
+  return `You are editing the complete managed Risk Class JSON bundle currently at version ${version || 'unknown'}. The JSON bundle is the sole sportsbook rule authority; application code is only a generic interpreter and must not be treated as a fallback rule source. Apply only the requested rule changes. Preserve all unrelated instructions, knowledge, deterministic rules, resultPolicies, resultTransforms, IDs, regexes, provider filters and brand mappings exactly. Keep schemaVersion=1. Do not invent, remove or alter operational exceptions or review policies unless explicitly requested. Return the COMPLETE updated JSON file, not a patch, explanation, markdown fence or abbreviated excerpt. Update the version field to a new meaningful version.`;
 }
 
 function json(value, status = 200) {
