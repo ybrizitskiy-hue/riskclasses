@@ -94,7 +94,7 @@
           </div>
         </div>
         <div class="threshold-stack">
-          <div class="threshold-row high"><span class="threshold-dot"></span><div><strong>High</strong><p>Classes confirmed; missing Tennis/Snooker round can still require review.</p></div><span class="review-no">Usually no check</span></div>
+          <div class="threshold-row high"><span class="threshold-dot"></span><div><strong>High</strong><p>Classes confirmed; missing Tennis/Snooker round is marked Stage.</p></div><span class="review-no">Usually no check</span></div>
           <div class="threshold-row medium"><span class="threshold-dot"></span><div><strong>Medium</strong><p>Recommendation or researched analogy.</p></div><span class="review-yes">Check</span></div>
           <div class="threshold-row low"><span class="threshold-dot"></span><div><strong>Low</strong><p>Material uncertainty or missing rule.</p></div><span class="review-yes">Check</span></div>
         </div>
@@ -103,7 +103,7 @@
           <li><span>✓</span> Always returns DAZN, Quinnbet and NTI</li>
           <li><span>✓</span> Global fills brands without an override</li>
           <li><span>✓</span> U = Betradar · BG = Betgenius · DB = Databet</li>
-          <li><span>✓</span> Missing Tennis/Snooker exact round = High + manual check with reason</li>
+          <li><span>✓</span> Missing Tennis/Snooker exact round = High + Stage check</li>
           <li><span>✓</span> Any <code>rec.</code> can never be High</li>
           <li><span>✓</span> Tennis SRL / Simulated Reality = H / H / H</li>
           <li><span>✓</span> Football RC I list checked before analogy</li>
@@ -147,7 +147,6 @@
               <th>Confidence</th>
               <th>Sources</th>
               <th>Manual check</th>
-              <th>Manual check reason</th>
             </tr>
           </thead>
           <tbody id="resultsBody"></tbody>
@@ -161,6 +160,22 @@
       <span>AI credentials remain server-side in Cloudflare</span>
     </footer>
   </main>
+
+  <style>
+    #resultsCard table { min-width: 1180px; table-layout: fixed; }
+    #resultsCard th:nth-child(1), #resultsCard td:nth-child(1) { width: 88px; }
+    #resultsCard th:nth-child(2), #resultsCard td:nth-child(2) { width: 260px; }
+    #resultsCard th:nth-child(3), #resultsCard td:nth-child(3) { width: 96px; }
+    #resultsCard th:nth-child(4), #resultsCard td:nth-child(4),
+    #resultsCard th:nth-child(5), #resultsCard td:nth-child(5),
+    #resultsCard th:nth-child(6), #resultsCard td:nth-child(6) { width: 82px; }
+    #resultsCard th:nth-child(7), #resultsCard td:nth-child(7) { width: 250px; }
+    #resultsCard th:nth-child(8), #resultsCard td:nth-child(8) { width: 105px; }
+    #resultsCard th:nth-child(9), #resultsCard td:nth-child(9) { width: 180px; }
+    #resultsCard th:nth-child(10), #resultsCard td:nth-child(10) { width: 110px; }
+    #resultsCard td { overflow-wrap: anywhere; }
+    #resultsCard .manual-pill.stage { color: #b9b1ff; background: rgba(139,124,255,.10); border: 1px solid rgba(139,124,255,.16); }
+  </style>
 
   <script src="/routing.js"></script>
   <script src="/rules-manager.js"></script>

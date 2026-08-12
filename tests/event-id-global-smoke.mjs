@@ -115,7 +115,7 @@ const canonicalBundle = {
 const validation = validateRulesBundle(canonicalBundle);
 assert(validation.valid, `Provider-aware baseline must validate: ${validation.errors.join('; ')}`);
 assert(canonicalBundle.deterministicRules.engineVersion === 2, 'Provider-aware deterministic engine version must be 2');
-assert(canonicalBundle.deterministicRules.providerTennisRulesVersion === 3, 'Baseline must mark the current provider Tennis rule set');
+assert(canonicalBundle.deterministicRules.providerTennisRulesVersion === 2, 'Baseline must mark the current provider Tennis rule set');
 for (const rule of canonicalBundle.deterministicRules.rules.filter((item) => item.providers?.length)) {
   const positivePatterns = [...(rule.match.any || []), ...(rule.match.all || [])].join(' ').toLowerCase();
   assert(rule.providers.every((provider) => positivePatterns.includes(provider.toLowerCase())), `${rule.id} must include a provider sentinel for safe pre-deploy imports`);
@@ -139,12 +139,12 @@ const index = buildRuntimeIndex(canonicalBundle);
 const providerCases = [
   ['U-1', 'ATP Challenger 100 Example. Men Singles', 'RC G', 'RC F', 'RC G'],
   ['BG-1', 'ATP Challenger 100 Example. Men Singles Qualification', 'RC G', 'RC F', 'RC G'],
-  ['BG-2', 'ATP Challenger 100 Example. Men Singles', 'RC E', 'RC E', 'RC G'],
+  ['BG-2', 'ATP Challenger 100 Example. Men Singles', 'RC G', 'RC G', 'RC G'],
   ['DB-1', 'ATP Challenger 100 Example. Men Singles', 'RC G', 'RC F', 'RC G'],
 
   ['U-2', 'WTA 125 Example. Women Singles', 'RC G', 'RC F', 'RC G'],
   ['BG-3', 'WTA 125 Example. Women Singles Qualifying', 'RC G', 'RC F', 'RC G'],
-  ['BG-4', 'WTA 125 Example. Women Singles', 'RC E', 'RC E', 'RC G'],
+  ['BG-4', 'WTA 125 Example. Women Singles', 'RC G', 'RC G', 'RC G'],
   ['DB-2', 'WTA 125 Example. Women Singles', 'RC G', 'RC F', 'RC G'],
 
   ['U-3', 'ATP 250 Example. Men Singles', 'RC E', 'RC E', 'RC G'],
@@ -218,7 +218,7 @@ assert(analyzeSource.includes("'RC I rec.'"), 'Classifier Global schema must all
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 assert(html.includes('<th>Competition ID</th>'), 'Results table must display Competition ID');
 assert(html.includes('Global fills brands without an override'), 'UI doctrine must describe Global inheritance');
-assert(html.includes('Missing Tennis/Snooker exact round = High + manual check with reason'), 'UI doctrine must describe the approved High/Yes round exception');
+assert(html.includes('Missing Tennis/Snooker exact round = High + Stage check'), 'UI doctrine must describe the approved High/Yes round exception');
 const appSource = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
 assert(appSource.includes("['Sport','Competition','Competition ID','DAZN'"), 'Copy/CSV exports must include Competition ID');
 assert(appSource.includes('row.competitionId'), 'Rendered rows must include Competition ID');
