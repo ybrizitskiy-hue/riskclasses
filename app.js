@@ -211,6 +211,7 @@ function renderResults(payload) {
     tr.innerHTML = `
       <td>${escapeHtml(row.sport)}</td>
       <td>${escapeHtml(row.competition)}</td>
+      <td>${escapeHtml(row.competitionId)}</td>
       <td>${escapeHtml(row.dazn)}</td>
       <td>${escapeHtml(row.quinnbet)}</td>
       <td>${escapeHtml(row.nti)}</td>
@@ -287,8 +288,8 @@ async function analyze() {
 els.analyzeBtn.addEventListener('click', analyze);
 
 function tsv() {
-  const rows = [['Sport','Competition','DAZN','Quinnbet','NTI','Basis','Confidence','Sources','Manual check']];
-  for (const r of state.results) rows.push([r.sport,r.competition,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheck?'Yes':'No']);
+  const rows = [['Sport','Competition','Competition ID','DAZN','Quinnbet','NTI','Basis','Confidence','Sources','Manual check']];
+  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheck?'Yes':'No']);
   return rows.map((row) => row.map((cell) => String(cell ?? '').replace(/\t/g,' ').replace(/\r?\n/g,' ')).join('\t')).join('\n');
 }
 
@@ -304,8 +305,8 @@ function csvEscape(value) {
   return /[",\n]/.test(text) ? `"${text.replace(/"/g,'""')}"` : text;
 }
 els.csvBtn.addEventListener('click', () => {
-  const rows = [['Sport','Competition','DAZN','Quinnbet','NTI','Basis','Confidence','Sources','Manual check']];
-  for (const r of state.results) rows.push([r.sport,r.competition,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheck?'Yes':'No']);
+  const rows = [['Sport','Competition','Competition ID','DAZN','Quinnbet','NTI','Basis','Confidence','Sources','Manual check']];
+  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheck?'Yes':'No']);
   const blob = new Blob([rows.map((row) => row.map(csvEscape).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
