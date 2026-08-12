@@ -4,10 +4,22 @@ export const RULES_SCHEMA_VERSION = 1;
 const MAX_HISTORY = 20;
 const MAX_BUNDLE_CHARS = 750000;
 const VALID_RC = /^RC\s+[A-I]$/;
+const VALID_DATA_PROVIDERS = new Set(['Betradar', 'Betgenius', 'Databet']);
 
 export function baselineDeterministicRules() {
+  const singles = '\\bsingles?\\b';
+  const doubles = '\\b(doubles?|mixed doubles|md|wd|xd)\\b';
+  const qualification = '\\b(qualification|qualifier|qualifying|quals?|q[1-3])\\b';
+  const legacyDoubles = '\\bdoubles?\\b';
+  const legacyQualification = '\\b(qualification|qualifier|qualifying|quals?)\\b';
+  const challenger = '\\bchallengers?\\b';
+  const wta125 = '\\bwta\\s*125(?:k)?\\b|\\b125k\\b';
+  const tour250 = '\\b(?:atp|wta)\\s*250\\b';
+  const tour500Plus = '\\b(?:atp|wta)\\s*(?:500|1000)\\b|\\bmasters?\\s*1000\\b|\\bgrand\\s*slams?\\b|\\baustralian\\s*open\\b|\\bfrench\\s*open\\b|\\broland\\s*garros\\b|\\bwimbledon\\b|\\bu\\s*s\\s*open\\b|\\bus\\s*open\\b';
+  const junior = '\\b(juniors?|boys?|girls?|wheelchair)\\b';
+
   return {
-    engineVersion: 1,
+    engineVersion: 2,
     footballRcI: {
       enabled: true,
       dazn: 'RC I',
@@ -18,10 +30,31 @@ export function baselineDeterministicRules() {
     rules: [
       rule('tennis-srl', 'tennis', ['\\b(srl|simulated reality|virtuals?|simulated)\\b'], [], [], 'RC H', 'RC H', 'RC H', 'Operational exception: Tennis SRL / Simulated Reality not offered'),
       rule('tennis-utr', 'tennis', ['\\butr\\b'], [], [], 'RC H', 'RC G', 'RC H', 'UTR / UTR PTT'),
-      rule('tennis-challenger-doubles', 'tennis', [], ['\\bchallenger\\b', '\\bdoubles?\\b'], [], 'RC G', 'RC F', 'RC G', 'Challenger Doubles'),
-      rule('tennis-itf-qualification', 'tennis', [], ['(?:\\bitf\\b|^wt\\b|\\bworld tennis tour\\b)', '\\b(qualification|qualifier|qualifying|quals?)\\b'], [], 'RC H', 'RC G', 'RC H', 'ITF Singles Qualification'),
-      rule('tennis-itf-doubles', 'tennis', [], ['(?:\\bitf\\b|^wt\\b|\\bworld tennis tour\\b)', '\\bdoubles?\\b'], ['\\b(qualification|qualifier|qualifying|quals?)\\b'], 'RC H', 'RC G', 'RC H', 'ITF / World Tennis Tour Doubles'),
-      rule('tennis-itf-main', 'tennis', ['(?:\\bitf\\b|^wt\\b|\\bworld tennis tour\\b)'], [], ['\\b(qualification|qualifier|qualifying|quals?)\\b', '\\bdoubles?\\b'], 'RC G', 'RC F', 'RC G', 'ITF / World Tennis Tour Singles Main Draw'),
+      rule('tennis-challenger-doubles', 'tennis', [], ['\\bchallenger\\b', legacyDoubles], [], 'RC G', 'RC F', 'RC G', 'Challenger Doubles'),
+
+      rule('tennis-br-challenger-singles', 'tennis', [], [challenger, singles], [doubles], 'RC G', 'RC F', 'RC G', 'Betradar Challenger Singles; Global G, Quinnbet F, NTI G', ['Betradar']),
+      rule('tennis-bg-challenger-qual-singles', 'tennis', [], [challenger, singles, qualification], [doubles], 'RC G', 'RC F', 'RC G', 'Betgenius Challenger Qual Singles; Global G, Quinnbet F, NTI G', ['Betgenius']),
+      rule('tennis-bg-challenger-singles', 'tennis', [], [challenger, singles], [qualification, doubles], 'RC E', 'RC E', 'RC G', 'Betgenius Challenger Singles; Global E, NTI G', ['Betgenius']),
+      rule('tennis-db-challenger-singles', 'tennis', [], [challenger, singles], [doubles], 'RC G', 'RC F', 'RC G', 'Databet Challenger Singles; Global G, Quinnbet F, NTI G', ['Databet']),
+
+      rule('tennis-br-wta125-singles', 'tennis', [], [wta125, singles], [doubles], 'RC G', 'RC F', 'RC G', 'Betradar WTA 125 Singles; Global G, Quinnbet F, NTI G', ['Betradar']),
+      rule('tennis-bg-wta125-qual-singles', 'tennis', [], [wta125, singles, qualification], [doubles], 'RC G', 'RC F', 'RC G', 'Betgenius WTA 125 Qual Singles; Global G, Quinnbet F, NTI G', ['Betgenius']),
+      rule('tennis-bg-wta125-singles', 'tennis', [], [wta125, singles], [qualification, doubles], 'RC E', 'RC E', 'RC G', 'Betgenius WTA 125 Singles; Global E, NTI G', ['Betgenius']),
+      rule('tennis-db-wta125-singles', 'tennis', [], [wta125, singles], [doubles], 'RC G', 'RC F', 'RC G', 'Databet WTA 125 Singles; Global G, Quinnbet F, NTI G', ['Databet']),
+
+      rule('tennis-br-250-singles', 'tennis', [], [tour250, singles], [doubles], 'RC E', 'RC E', 'RC G', 'Betradar ATP/WTA 250 Singles; Global E, NTI G', ['Betradar']),
+      rule('tennis-bg-250-qual-singles', 'tennis', [], [tour250, singles, qualification], [doubles], 'RC E', 'RC E', 'RC G', 'Betgenius ATP/WTA 250 Qual Singles; Global E, NTI G', ['Betgenius']),
+      rule('tennis-bg-250-singles', 'tennis', [], [tour250, singles], [qualification, doubles], 'RC D', 'RC D', 'RC E', 'Betgenius ATP/WTA 250 Singles; Global D, NTI E', ['Betgenius']),
+      rule('tennis-db-250-singles', 'tennis', [], [tour250, singles], [doubles], 'RC E', 'RC E', 'RC G', 'Databet ATP/WTA 250 Singles; Global E, NTI G', ['Databet']),
+
+      rule('tennis-br-500plus-singles', 'tennis', [], [tour500Plus, singles], [doubles, junior], 'RC E', 'RC E', 'RC E', 'Betradar ATP/WTA 500/1000/Grand Slam Singles; Global E, NTI E', ['Betradar']),
+      rule('tennis-bg-500plus-qual-singles', 'tennis', [], [tour500Plus, singles, qualification], [doubles, junior], 'RC E', 'RC E', 'RC E', 'Betgenius ATP/WTA 500/1000/Grand Slam Qual Singles; Global E', ['Betgenius']),
+      rule('tennis-bg-500plus-singles', 'tennis', [], [tour500Plus, singles], [qualification, doubles, junior], 'RC C', 'RC C', 'RC E', 'Betgenius ATP/WTA 500/1000/Grand Slam Singles; Global C, NTI E', ['Betgenius']),
+      rule('tennis-db-500plus-singles', 'tennis', [], [tour500Plus, singles], [doubles, junior], 'RC E', 'RC E', 'RC E', 'Databet ATP/WTA 500/1000/Grand Slam Singles; Global E, NTI E', ['Databet']),
+
+      rule('tennis-itf-qualification', 'tennis', [], ['(?:\\bitf\\b|^wt\\b|\\bworld tennis tour\\b)', legacyQualification], [], 'RC H', 'RC G', 'RC H', 'ITF Singles Qualification'),
+      rule('tennis-itf-doubles', 'tennis', [], ['(?:\\bitf\\b|^wt\\b|\\bworld tennis tour\\b)', legacyDoubles], [legacyQualification], 'RC H', 'RC G', 'RC H', 'ITF / World Tennis Tour Doubles'),
+      rule('tennis-itf-main', 'tennis', ['(?:\\bitf\\b|^wt\\b|\\bworld tennis tour\\b)'], [], [legacyQualification, legacyDoubles], 'RC G', 'RC F', 'RC G', 'ITF / World Tennis Tour Singles Main Draw'),
 
       rule('golf-major-ryder', 'golf', ['\\bryder cup\\b|\\bthe masters\\b|\\bmasters tournament\\b|\\bpga championship\\b|\\bu\\.?s\\.? open\\b|\\bthe open championship\\b'], [], [], 'RC A', 'RC A', 'RC A', 'Golf Major / Ryder Cup'),
       rule('golf-pga-tour-champions', 'golf', ['\\bpga tour champions\\b|\\bboeing classic\\b'], [], [], 'RC C', 'RC C', 'RC C', 'PGA Tour Champions / Golf other'),
@@ -37,13 +70,30 @@ export function baselineDeterministicRules() {
       rule('badminton-elite', 'badminton', ['\\bworld championships?\\b|\\bsuper 1000\\b|\\btour finals\\b|\\beuropean championship\\b'], [], [], 'RC A', 'RC A', 'RC A', 'Badminton elite category'),
       rule('badminton-malaysia-international', 'badminton', ['\\bmalaysia international\\b'], [], [], 'RC D', 'RC D', 'RC D', 'Badminton all other leagues'),
 
-      rule('mma-contender-series', 'mma', ['\\bcontender series\\b'], [], [], 'RC D', 'RC D', 'RC D', 'MMA Contender Series'),
+      rule('mma-contender-series', 'mma', ['\\bcontender series\\b'], [], [], 'RC E', 'RC E', 'RC E', 'MMA Contender Series / all-others RC E'),
     ],
   };
 }
 
-function rule(id, sport, any, all, none, dazn, quinnbet, nti, basis) {
-  return { id, sport, match: { any, all, none }, dazn, quinnbet, nti, basis, source: 'Risk Class guide' };
+function rule(id, sport, any, all, none, dazn, quinnbet, nti, basis, providers = []) {
+  const match = {
+    any: [...any],
+    all: [...all],
+    none: [...none],
+  };
+  const output = { id, sport, match, dazn, quinnbet, nti, basis, source: 'Risk Class guide' };
+  if (providers.length) {
+    output.providers = [...providers];
+    // Keep managed provider rules inert on older deterministic engines that do not
+    // understand the providers field. Engine v2 also tests these sentinels against
+    // normalized provider context, while v1 tests competition text only.
+    match.all.push(`\\b(?:${providers.map((provider) => regexEscape(provider.toLowerCase())).join('|')})\\b`);
+  }
+  return output;
+}
+
+function regexEscape(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export function migrateLegacyBundle(value) {
@@ -100,6 +150,22 @@ export function validateRulesBundle(value) {
     validateRc(item.nti, `${prefix}.nti`, errors);
     if (!String(item.basis || '').trim()) errors.push(`${prefix}.basis is required.`);
 
+    if (item.providers != null) {
+      if (!Array.isArray(item.providers)) {
+        errors.push(`${prefix}.providers must be an array when supplied.`);
+      } else {
+        const seenProviders = new Set();
+        for (const provider of item.providers) {
+          if (!VALID_DATA_PROVIDERS.has(provider)) {
+            errors.push(`${prefix}.providers contains unsupported value: ${String(provider)}.`);
+          } else if (seenProviders.has(provider)) {
+            errors.push(`${prefix}.providers contains duplicate value: ${provider}.`);
+          }
+          seenProviders.add(provider);
+        }
+      }
+    }
+
     const match = item.match;
     if (!match || typeof match !== 'object') {
       errors.push(`${prefix}.match is required.`);
@@ -122,6 +188,18 @@ export function validateRulesBundle(value) {
       }
     }
     if (!matcherCount) errors.push(`${prefix}.match must contain at least one positive any/all regex.`);
+
+    if (Array.isArray(item.providers) && item.providers.length) {
+      const positivePatterns = [
+        ...(Array.isArray(match.any) ? match.any : []),
+        ...(Array.isArray(match.all) ? match.all : []),
+      ].join(' ').toLowerCase();
+      for (const provider of item.providers) {
+        if (VALID_DATA_PROVIDERS.has(provider) && !positivePatterns.includes(provider.toLowerCase())) {
+          errors.push(`${prefix}.match must include a provider sentinel regex for ${provider}.`);
+        }
+      }
+    }
   }
 
   if (deterministic?.footballRcI?.enabled) {
@@ -140,6 +218,9 @@ export function validateRulesBundle(value) {
     warnings.push('Could not automatically confirm the High → Manual check No doctrine in instructions. Review before publishing.');
   }
   if (!/Simulated Reality|Tennis SRL/i.test(source.knowledge || '')) warnings.push('Knowledge text does not visibly mention the Tennis SRL / Simulated Reality exception.');
+  if (/blank\s+(?:brand\s+)?cell\s+(?:is\s+)?not\s+(?:the\s+)?same\s+as\s+global/i.test(`${source.instructions || ''}\n${source.knowledge || ''}`)) {
+    warnings.push('Rules text still contains the obsolete blank-brand-not-Global doctrine. Review Global inheritance before publishing.');
+  }
 
   return {
     valid: errors.length === 0,
