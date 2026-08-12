@@ -115,7 +115,7 @@ const analyzeSource = readFileSync(new URL('../functions/api/analyze-core.js', i
 assert(analyzeSource.includes("required: ['sport', 'competition', 'competitionId']"), 'Extraction schema must require Competition ID');
 assert(analyzeSource.includes("'global', 'dazn', 'quinnbet', 'nti'"), 'Classifier schema must include Global');
 assert(analyzeSource.includes('official ATP Tour or WTA tournament calendar/page'), 'Research contract must prefer official ATP/WTA sources');
-assert(analyzeSource.includes('resolveGlobalBrands(row)'), 'Server consistency must apply Global inheritance');
+assert(analyzeSource.includes('enforceResultPolicy('), 'Server consistency must apply the shared result policy');
 assert(analyzeSource.includes("promptCacheKey: 'riskclasses-row-extraction-v3'"), 'Extraction cache key must be versioned for the new schema');
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 assert(html.includes('<th>Competition ID</th>'), 'Results table must display Competition ID');
