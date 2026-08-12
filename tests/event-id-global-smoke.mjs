@@ -115,7 +115,7 @@ const canonicalBundle = {
 const validation = validateRulesBundle(canonicalBundle);
 assert(validation.valid, `Provider-aware baseline must validate: ${validation.errors.join('; ')}`);
 assert(canonicalBundle.deterministicRules.engineVersion === 2, 'Provider-aware deterministic engine version must be 2');
-assert(canonicalBundle.deterministicRules.providerTennisRulesVersion === 2, 'Baseline must mark the current provider Tennis rule set');
+assert(canonicalBundle.deterministicRules.providerTennisRulesVersion === 3, 'Baseline must mark the current provider Tennis rule set');
 for (const rule of canonicalBundle.deterministicRules.rules.filter((item) => item.providers?.length)) {
   const positivePatterns = [...(rule.match.any || []), ...(rule.match.all || [])].join(' ').toLowerCase();
   assert(rule.providers.every((provider) => positivePatterns.includes(provider.toLowerCase())), `${rule.id} must include a provider sentinel for safe pre-deploy imports`);
@@ -139,12 +139,12 @@ const index = buildRuntimeIndex(canonicalBundle);
 const providerCases = [
   ['U-1', 'ATP Challenger 100 Example. Men Singles', 'RC G', 'RC F', 'RC G'],
   ['BG-1', 'ATP Challenger 100 Example. Men Singles Qualification', 'RC G', 'RC F', 'RC G'],
-  ['BG-2', 'ATP Challenger 100 Example. Men Singles', 'RC G', 'RC G', 'RC G'],
+  ['BG-2', 'ATP Challenger 100 Example. Men Singles', 'RC E', 'RC E', 'RC G'],
   ['DB-1', 'ATP Challenger 100 Example. Men Singles', 'RC G', 'RC F', 'RC G'],
 
   ['U-2', 'WTA 125 Example. Women Singles', 'RC G', 'RC F', 'RC G'],
   ['BG-3', 'WTA 125 Example. Women Singles Qualifying', 'RC G', 'RC F', 'RC G'],
-  ['BG-4', 'WTA 125 Example. Women Singles', 'RC G', 'RC G', 'RC G'],
+  ['BG-4', 'WTA 125 Example. Women Singles', 'RC E', 'RC E', 'RC G'],
   ['DB-2', 'WTA 125 Example. Women Singles', 'RC G', 'RC F', 'RC G'],
 
   ['U-3', 'ATP 250 Example. Men Singles', 'RC E', 'RC E', 'RC G'],
