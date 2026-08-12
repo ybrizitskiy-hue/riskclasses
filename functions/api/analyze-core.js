@@ -8,11 +8,12 @@ import {
 } from '../lib/provider-config.js';
 import { effortFor, loadReasoningConfig } from '../lib/reasoning-config.js';
 import { callAiJson } from '../lib/ai-client.js';
+import { PROVIDER_TENNIS_RULES_PROMPT } from '../lib/provider-tennis-rules.js';
+import { enforceResultPolicy } from '../lib/result-policy.js';
 import {
   decorateInputRows,
   filterGlobalInheritanceWarnings,
   parseCompetitionRows,
-  resolveGlobalBrands,
 } from '../lib/input-contract.js';
 
 const MAX_IMAGES = 4;
@@ -145,7 +146,7 @@ export async function onRequestPost(context) {
   for (const row of rows) {
     const deterministic = classifyDeterministic(row, runtimeIndex);
     if (deterministic) {
-      finalByIndex.set(row.inputIndex, enforceConsistency({ ...deterministic, inputIndex: row.inputIndex }));
+      finalByIndex.set(row.inputIndex, enforceResultPolicy({ ...deterministic, inputIndex: row.inputIndex }, row));
       deterministicCount += 1;
     } else {
       unresolved.push(row);
@@ -172,7 +173,7 @@ export async function onRequestPost(context) {
     appendClassifierWarnings(warnings, primary.result.warnings);
 
     const latest = new Map();
-    for (const result of primary.result.rows || []) latest.set(result.inputIndex, enforceConsistency(result));
+    for (const result of primary.result.rows || []) latest.set(result.inputIndex, enforceResultPolicy(result));
     let pending = unresolved.filter((input) => latest.get(input.inputIndex)?.needsEscalation);
 
     if (pending.length && route.research) {
@@ -191,7 +192,7 @@ export async function onRequestPost(context) {
         if (research.ok) {
           researchCount = pending.length;
           appendClassifierWarnings(warnings, research.result.warnings);
-          for (const result of research.result.rows || []) latest.set(result.inputIndex, enforceConsistency(result));
+          for (const result of research.result.rows || []) latest.set(result.inputIndex, enforceResultPolicy(result));
           pending = pending.filter((input) => latest.get(input.inputIndex)?.needsEscalation);
         } else {
           warnings.push(`Research provider failed; previous results retained. ${research.error}`);
@@ -217,7 +218,7 @@ export async function onRequestPost(context) {
         if (escalation.ok) {
           escalatedCount = pending.length;
           appendClassifierWarnings(warnings, escalation.result.warnings);
-          for (const result of escalation.result.rows || []) latest.set(result.inputIndex, enforceConsistency(result));
+          for (const result of escalation.result.rows || []) latest.set(result.inputIndex, enforceResultPolicy(result));
           pending = [];
         } else {
           warnings.push(`Escalation provider failed; previous results retained. ${escalation.error}`);
@@ -247,6 +248,7 @@ export async function onRequestPost(context) {
       confidence: 'Low',
       sources: ['Risk Class guide'],
       manualCheck: true,
+      manualCheckReason: 'No classification result returned.',
     };
   });
 
@@ -341,7 +343,7 @@ async function classifyWithProfile({ env, providerConfig, profile, rows, rules, 
     schema: CLASSIFIER_SCHEMA,
     schemaName: 'risk_class_analysis',
     useWeb: true,
-    promptCacheKey: `riskclasses-${rules.version || 'rules'}-${providerConfig.version || 'providers'}-${profile.id}-classifier`,
+    promptCacheKey: `riskclasses-round-v2-${rules.version || 'rules'}-${providerConfig.version || 'providers'}-${profile.id}-classifier`,
   });
   if (result.telemetry) telemetryCalls.push(result.telemetry);
   return result;
@@ -351,33 +353,24 @@ function buildDeveloperPrompt(rules, { webAvailable }) {
   const researchContract = webAvailable
     ? 'A web-search tool is available in this stage. Use it only when current facts such as tournament tier, tour, division, qualifier status, participant level or esports tier are genuinely needed. Do not browse merely to confirm an exact rule.'
     : 'No web-search tool is available in this stage. If the answer materially depends on a current external fact that is not established by the canonical rules, make the best cautious answer you can and set needsEscalation=true so a research-capable or stronger configured provider can review it.';
-  return `${rules.instructions}\n\n--- CANONICAL KNOWLEDGE SOURCE ---\n${rules.knowledge}\n\n--- WEBSITE ROUTING CONTRACT (HARD) ---\nThe canonical instructions and knowledge above remain the authority. These rows were not resolved by the deterministic exact-rule layer, so classify them with the same approved behavior. Return only structured output. Keep inputIndex unchanged and preserve sport/competition text exactly. Competition ID is provider context: IDs starting BG are Betgenius, IDs starting DB are Databet, and IDs starting U are Betradar. Always return a Global/base field plus DAZN, Quinnbet and NTI. The Global field must be an exact RC A-I value, 'RC X rec.' only when the Global classification itself is a genuine analogy, or an empty string only when the canonical rules genuinely provide no Global value. Global is the default for every brand that has no explicit brand-specific override: a blank or Same as Global brand value MUST inherit the Global value exactly. Do not add a rec. marker, missing-rule warning or manual check solely because the brand override is absent. If Global itself is 'RC X rec.' because the base classification is a genuine analogy, every unspecified brand inherits that same 'RC X rec.' recommendation. Only use Manual check / missing rule when neither a Global value nor a brand-specific value can be established. Confidence is confidence in the FINAL three-brand answer: High => manualCheck false; Medium/Low => manualCheck true; any value containing 'rec.' cannot be High; any 'Manual check / missing rule' forces Low. Apply exact/operational rules before analogy. For Tennis Challenger, WTA 125, ATP/WTA 250, ATP/WTA 500, ATP/WTA 1000 and Grand Slam rows, apply the exact provider-specific new-competition rule in canonical Knowledge. If the event category is not explicit, use the official ATP Tour or WTA tournament calendar/page to verify the listed level or points; do not infer it from the event name alone. ${researchContract} Never invent brand overrides. Tennis Virtuals/SRL/Simulated Reality are RC H for all three while the not-offered exception is active. Set needsEscalation=true ONLY when the competition/base classification remains materially uncertain and another configured research/quality model could plausibly change the answer. Do NOT escalate merely because a brand uses inherited Global or because Manual check is required only for a genuinely unresolved rule.`;
+  return `${rules.instructions}\n\n--- CANONICAL KNOWLEDGE SOURCE ---\n${rules.knowledge}\n\n--- WEBSITE ROUTING CONTRACT (HARD) ---\nThe canonical instructions and knowledge above remain the authority. These rows were not resolved by the deterministic exact-rule layer, so classify them with the same approved behavior. Return only structured output. Keep inputIndex unchanged and preserve sport/competition text exactly. Competition ID is provider context: IDs starting BG are Betgenius, IDs starting DB are Databet, and IDs starting U are Betradar. Always return a Global/base field plus DAZN, Quinnbet and NTI. The Global field must be an exact RC A-I value, 'RC X rec.' only when the Global classification itself is a genuine analogy, or an empty string only when the canonical rules genuinely provide no Global value. Global is the default for every brand that has no explicit brand-specific override: a blank or Same as Global brand value MUST inherit the Global value exactly. Do not add a rec. marker, missing-rule warning or manual check solely because the brand override is absent. If Global itself is 'RC X rec.' because the base classification is a genuine analogy, every unspecified brand inherits that same 'RC X rec.' recommendation. Only use Manual check / missing rule when neither a Global value nor a brand-specific value can be established. Confidence is confidence in the FINAL three-brand answer: High normally means manualCheck false; Medium/Low mean manualCheck true; any value containing 'rec.' cannot be High; any 'Manual check / missing rule' forces Low. Special round-review exception: for Tennis or Snooker, when the input does not state a round/stage, keep High when the three-brand class is otherwise confirmed, set manualCheck=true, and explicitly state 'Round/stage not provided — High confidence retained; manual check required for the applicable round.' Generic Qualification/Qualifying/Qualifier wording identifies a qualifying category but does not state the exact round; only Q1-Q4 or another actual round/stage removes this review. Tennis SRL/Simulated Reality and outright/winner markets are excluded. Do not lower confidence solely because the round is absent. Apply exact/operational rules before analogy. ${PROVIDER_TENNIS_RULES_PROMPT} If the event category is not explicit, use the official ATP Tour or WTA tournament calendar/page to verify the listed level or points; do not infer it from the event name alone. ${researchContract} Never invent brand overrides. Tennis Virtuals/SRL/Simulated Reality are RC H for all three while the not-offered exception is active. Set needsEscalation=true ONLY when the competition/base classification remains materially uncertain and another configured research/quality model could plausibly change the answer. Do NOT escalate merely because a brand uses inherited Global or because Manual check is required only for a missing Tennis/Snooker round.`;
 }
 
-function enforceConsistency(row) {
-  const resolved = resolveGlobalBrands(row);
-  const values = [resolved?.dazn, resolved?.quinnbet, resolved?.nti].map((value) => String(value || ''));
-  const hasRec = values.some((value) => /\brec\./i.test(value));
-  const hasMissing = values.some((value) => /manual check|missing rule/i.test(value));
-  let confidence = ['High', 'Medium', 'Low'].includes(resolved?.confidence) ? resolved.confidence : 'Low';
-  if (hasMissing) confidence = 'Low';
-  else if (hasRec && confidence === 'High') confidence = 'Medium';
-  const manualCheck = confidence !== 'High' || hasRec || hasMissing;
-  return { ...resolved, confidence, manualCheck };
-}
 
 function stripInternal(row, input) {
+  const final = enforceResultPolicy(row, input);
   return {
     sport: input.sport,
     competition: input.competition,
     competitionId: input.competitionId,
-    dazn: row.dazn,
-    quinnbet: row.quinnbet,
-    nti: row.nti,
-    basis: row.basis,
-    confidence: row.confidence,
-    sources: Array.isArray(row.sources) ? row.sources : [],
-    manualCheck: Boolean(row.manualCheck),
+    dazn: final.dazn,
+    quinnbet: final.quinnbet,
+    nti: final.nti,
+    basis: final.basis,
+    confidence: final.confidence,
+    sources: Array.isArray(final.sources) ? final.sources : [],
+    manualCheck: Boolean(final.manualCheck),
+    manualCheckReason: final.manualCheckReason || '',
   };
 }
 

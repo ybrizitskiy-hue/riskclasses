@@ -179,19 +179,19 @@ function stopProgress(success = true) {
 
 function normalizeResultRow(row) {
   const confidence = ['High', 'Medium', 'Low'].includes(row.confidence) ? row.confidence : 'Low';
-  let manualCheck = Boolean(row.manualCheck);
+  const manualCheckReason = String(row.manualCheckReason || '').trim();
   const brandValues = [row.dazn, row.quinnbet, row.nti].map((x) => String(x || ''));
   const hasRec = brandValues.some((x) => /\brec\./i.test(x));
   const hasMissing = brandValues.some((x) => /missing rule|manual check/i.test(x));
 
-  // Client-side guardrail mirrors the Custom GPT's hard consistency rules.
+  // Client-side guardrail mirrors the backend, including the approved
+  // High + manual round-check exception for Tennis/Snooker without a round.
   let finalConfidence = confidence;
   if (hasMissing) finalConfidence = 'Low';
   else if (hasRec && finalConfidence === 'High') finalConfidence = 'Medium';
-  if (finalConfidence !== 'High' || hasRec || hasMissing) manualCheck = true;
-  if (finalConfidence === 'High') manualCheck = false;
+  const manualCheck = finalConfidence !== 'High' || hasRec || hasMissing || Boolean(manualCheckReason);
 
-  return { ...row, confidence: finalConfidence, manualCheck };
+  return { ...row, confidence: finalConfidence, manualCheck, manualCheckReason };
 }
 
 function sourceChips(sources) {
@@ -219,6 +219,7 @@ function renderResults(payload) {
       <td><span class="confidence-pill ${confClass}">${escapeHtml(row.confidence)}</span></td>
       <td>${sourceChips(row.sources)}</td>
       <td><span class="manual-pill ${row.manualCheck ? 'yes' : 'no'}">${row.manualCheck ? 'Yes' : 'No'}</span></td>
+      <td>${escapeHtml(row.manualCheckReason || '—')}</td>
     `;
     els.resultsBody.appendChild(tr);
   }
@@ -288,8 +289,8 @@ async function analyze() {
 els.analyzeBtn.addEventListener('click', analyze);
 
 function tsv() {
-  const rows = [['Sport','Competition','Competition ID','DAZN','Quinnbet','NTI','Basis','Confidence','Sources','Manual check']];
-  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheck?'Yes':'No']);
+  const rows = [['Sport','Competition','Competition ID','DAZN','Quinnbet','NTI','Basis','Confidence','Sources','Manual check','Manual check reason']];
+  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheck?'Yes':'No',r.manualCheckReason||'']);
   return rows.map((row) => row.map((cell) => String(cell ?? '').replace(/\t/g,' ').replace(/\r?\n/g,' ')).join('\t')).join('\n');
 }
 
@@ -305,8 +306,8 @@ function csvEscape(value) {
   return /[",\n]/.test(text) ? `"${text.replace(/"/g,'""')}"` : text;
 }
 els.csvBtn.addEventListener('click', () => {
-  const rows = [['Sport','Competition','Competition ID','DAZN','Quinnbet','NTI','Basis','Confidence','Sources','Manual check']];
-  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheck?'Yes':'No']);
+  const rows = [['Sport','Competition','Competition ID','DAZN','Quinnbet','NTI','Basis','Confidence','Sources','Manual check','Manual check reason']];
+  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheck?'Yes':'No',r.manualCheckReason||'']);
   const blob = new Blob([rows.map((row) => row.map(csvEscape).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

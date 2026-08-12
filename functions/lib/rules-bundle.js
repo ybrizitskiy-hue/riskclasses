@@ -1,3 +1,9 @@
+import {
+  PROVIDER_TENNIS_RULES_VERSION,
+  requiredProviderTennisRuleIds,
+  requiredProviderTennisRules,
+} from './provider-tennis-rules.js';
+
 export const RULES_KEY = 'custom-gpt-v2';
 export const HISTORY_INDEX_KEY = 'rules-history-index-v1';
 export const RULES_SCHEMA_VERSION = 1;
@@ -7,19 +13,13 @@ const VALID_RC = /^RC\s+[A-I]$/;
 const VALID_DATA_PROVIDERS = new Set(['Betradar', 'Betgenius', 'Databet']);
 
 export function baselineDeterministicRules() {
-  const singles = '\\bsingles?\\b';
   const doubles = '\\b(doubles?|mixed doubles|md|wd|xd)\\b';
-  const qualification = '\\b(qualification|qualifier|qualifying|quals?|q[1-3])\\b';
   const legacyDoubles = '\\bdoubles?\\b';
   const legacyQualification = '\\b(qualification|qualifier|qualifying|quals?)\\b';
-  const challenger = '\\bchallengers?\\b';
-  const wta125 = '\\bwta\\s*125(?:k)?\\b|\\b125k\\b';
-  const tour250 = '\\b(?:atp|wta)\\s*250\\b';
-  const tour500Plus = '\\b(?:atp|wta)\\s*(?:500|1000)\\b|\\bmasters?\\s*1000\\b|\\bgrand\\s*slams?\\b|\\baustralian\\s*open\\b|\\bfrench\\s*open\\b|\\broland\\s*garros\\b|\\bwimbledon\\b|\\bu\\s*s\\s*open\\b|\\bus\\s*open\\b';
-  const junior = '\\b(juniors?|boys?|girls?|wheelchair)\\b';
 
   return {
     engineVersion: 2,
+    providerTennisRulesVersion: PROVIDER_TENNIS_RULES_VERSION,
     footballRcI: {
       enabled: true,
       dazn: 'RC I',
@@ -32,25 +32,7 @@ export function baselineDeterministicRules() {
       rule('tennis-utr', 'tennis', ['\\butr\\b'], [], [], 'RC H', 'RC G', 'RC H', 'UTR / UTR PTT'),
       rule('tennis-challenger-doubles', 'tennis', [], ['\\bchallenger\\b', legacyDoubles], [], 'RC G', 'RC F', 'RC G', 'Challenger Doubles'),
 
-      rule('tennis-br-challenger-singles', 'tennis', [], [challenger, singles], [doubles], 'RC G', 'RC F', 'RC G', 'Betradar Challenger Singles; Global G, Quinnbet F, NTI G', ['Betradar']),
-      rule('tennis-bg-challenger-qual-singles', 'tennis', [], [challenger, singles, qualification], [doubles], 'RC G', 'RC F', 'RC G', 'Betgenius Challenger Qual Singles; Global G, Quinnbet F, NTI G', ['Betgenius']),
-      rule('tennis-bg-challenger-singles', 'tennis', [], [challenger, singles], [qualification, doubles], 'RC E', 'RC E', 'RC G', 'Betgenius Challenger Singles; Global E, NTI G', ['Betgenius']),
-      rule('tennis-db-challenger-singles', 'tennis', [], [challenger, singles], [doubles], 'RC G', 'RC F', 'RC G', 'Databet Challenger Singles; Global G, Quinnbet F, NTI G', ['Databet']),
-
-      rule('tennis-br-wta125-singles', 'tennis', [], [wta125, singles], [doubles], 'RC G', 'RC F', 'RC G', 'Betradar WTA 125 Singles; Global G, Quinnbet F, NTI G', ['Betradar']),
-      rule('tennis-bg-wta125-qual-singles', 'tennis', [], [wta125, singles, qualification], [doubles], 'RC G', 'RC F', 'RC G', 'Betgenius WTA 125 Qual Singles; Global G, Quinnbet F, NTI G', ['Betgenius']),
-      rule('tennis-bg-wta125-singles', 'tennis', [], [wta125, singles], [qualification, doubles], 'RC E', 'RC E', 'RC G', 'Betgenius WTA 125 Singles; Global E, NTI G', ['Betgenius']),
-      rule('tennis-db-wta125-singles', 'tennis', [], [wta125, singles], [doubles], 'RC G', 'RC F', 'RC G', 'Databet WTA 125 Singles; Global G, Quinnbet F, NTI G', ['Databet']),
-
-      rule('tennis-br-250-singles', 'tennis', [], [tour250, singles], [doubles], 'RC E', 'RC E', 'RC G', 'Betradar ATP/WTA 250 Singles; Global E, NTI G', ['Betradar']),
-      rule('tennis-bg-250-qual-singles', 'tennis', [], [tour250, singles, qualification], [doubles], 'RC E', 'RC E', 'RC G', 'Betgenius ATP/WTA 250 Qual Singles; Global E, NTI G', ['Betgenius']),
-      rule('tennis-bg-250-singles', 'tennis', [], [tour250, singles], [qualification, doubles], 'RC D', 'RC D', 'RC E', 'Betgenius ATP/WTA 250 Singles; Global D, NTI E', ['Betgenius']),
-      rule('tennis-db-250-singles', 'tennis', [], [tour250, singles], [doubles], 'RC E', 'RC E', 'RC G', 'Databet ATP/WTA 250 Singles; Global E, NTI G', ['Databet']),
-
-      rule('tennis-br-500plus-singles', 'tennis', [], [tour500Plus, singles], [doubles, junior], 'RC E', 'RC E', 'RC E', 'Betradar ATP/WTA 500/1000/Grand Slam Singles; Global E, NTI E', ['Betradar']),
-      rule('tennis-bg-500plus-qual-singles', 'tennis', [], [tour500Plus, singles, qualification], [doubles, junior], 'RC E', 'RC E', 'RC E', 'Betgenius ATP/WTA 500/1000/Grand Slam Qual Singles; Global E', ['Betgenius']),
-      rule('tennis-bg-500plus-singles', 'tennis', [], [tour500Plus, singles], [qualification, doubles, junior], 'RC C', 'RC C', 'RC E', 'Betgenius ATP/WTA 500/1000/Grand Slam Singles; Global C, NTI E', ['Betgenius']),
-      rule('tennis-db-500plus-singles', 'tennis', [], [tour500Plus, singles], [doubles, junior], 'RC E', 'RC E', 'RC E', 'Databet ATP/WTA 500/1000/Grand Slam Singles; Global E, NTI E', ['Databet']),
+      ...requiredProviderTennisRules(),
 
       rule('tennis-itf-qualification', 'tennis', [], ['(?:\\bitf\\b|^wt\\b|\\bworld tennis tour\\b)', legacyQualification], [], 'RC H', 'RC G', 'RC H', 'ITF Singles Qualification'),
       rule('tennis-itf-doubles', 'tennis', [], ['(?:\\bitf\\b|^wt\\b|\\bworld tennis tour\\b)', legacyDoubles], [legacyQualification], 'RC H', 'RC G', 'RC H', 'ITF / World Tennis Tour Doubles'),
@@ -135,6 +117,10 @@ export function validateRulesBundle(value) {
   if (!deterministic || typeof deterministic !== 'object') errors.push('deterministicRules is required.');
   const rules = Array.isArray(deterministic?.rules) ? deterministic.rules : [];
   if (!rules.length) errors.push('deterministicRules.rules must contain at least one rule.');
+  const providerTennisRulesVersion = Number(deterministic?.providerTennisRulesVersion || 0);
+  if (deterministic?.providerTennisRulesVersion != null && (!Number.isInteger(providerTennisRulesVersion) || providerTennisRulesVersion < 0)) {
+    errors.push('deterministicRules.providerTennisRulesVersion must be a non-negative integer when supplied.');
+  }
 
   const ids = new Set();
   for (let index = 0; index < rules.length; index += 1) {
@@ -202,6 +188,12 @@ export function validateRulesBundle(value) {
     }
   }
 
+  if (providerTennisRulesVersion >= PROVIDER_TENNIS_RULES_VERSION) {
+    for (const id of requiredProviderTennisRuleIds()) {
+      if (!ids.has(id)) errors.push(`Managed provider Tennis rules version ${providerTennisRulesVersion} is missing required rule: ${id}.`);
+    }
+  }
+
   if (deterministic?.footballRcI?.enabled) {
     validateRc(deterministic.footballRcI.dazn, 'deterministicRules.footballRcI.dazn', errors);
     validateRc(deterministic.footballRcI.quinnbet, 'deterministicRules.footballRcI.quinnbet', errors);
@@ -214,8 +206,12 @@ export function validateRulesBundle(value) {
     errors.push('Required operational override `tennis-srl` must remain RC H / RC H / RC H while Tennis SRL is not offered.');
   }
 
-  if (!/High\s*(?:→|->|=).*No/i.test(source.instructions || '') && !/High[^\n]{0,80}Manual check[^\n]{0,30}No/i.test(source.instructions || '')) {
-    warnings.push('Could not automatically confirm the High → Manual check No doctrine in instructions. Review before publishing.');
+  const policyText = `${source.instructions || ''}\n${source.knowledge || ''}`;
+  if (!/High\s*(?:→|->|=|normally)[^\n]{0,100}(?:Manual check\s*=\s*)?No/i.test(policyText) && !/High[^\n]{0,100}Manual check[^\n]{0,40}No/i.test(policyText)) {
+    warnings.push('Could not automatically confirm the normal High → Manual check No doctrine in rules text. Review before publishing.');
+  }
+  if (!/Tennis\/?Snooker|Tennis or Snooker/i.test(policyText) || !/missing[- ]round|no exact round|round\/stage not provided/i.test(policyText) || !/High[^\n]{0,220}Manual check[^\n]{0,80}Yes/i.test(policyText)) {
+    warnings.push('Could not automatically confirm the Tennis/Snooker missing-round High + Manual check Yes exception. Review before publishing.');
   }
   if (!/Simulated Reality|Tennis SRL/i.test(source.knowledge || '')) warnings.push('Knowledge text does not visibly mention the Tennis SRL / Simulated Reality exception.');
   if (/blank\s+(?:brand\s+)?cell\s+(?:is\s+)?not\s+(?:the\s+)?same\s+as\s+global/i.test(`${source.instructions || ''}\n${source.knowledge || ''}`)) {
