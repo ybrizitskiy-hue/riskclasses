@@ -218,7 +218,7 @@ assert(analyzeSource.includes("'RC I rec.'"), 'Classifier Global schema must all
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 assert(html.includes('<th>Competition ID</th>'), 'Results table must display Competition ID');
 assert(html.includes('Global fills brands without an override'), 'UI doctrine must describe Global inheritance');
-assert(html.includes('Missing Tennis/Snooker exact round = High + manual check with reason'), 'UI doctrine must describe the approved High/Yes round exception');
+assert(html.includes('Missing Tennis/Snooker exact round = High + Stage check'), 'UI doctrine must describe the approved High/Yes round exception');
 const appSource = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
 assert(appSource.includes("['Sport','Competition','Competition ID','DAZN'"), 'Copy/CSV exports must include Competition ID');
 assert(appSource.includes('row.competitionId'), 'Rendered rows must include Competition ID');

@@ -62,7 +62,7 @@ assert(calls.length === 0, 'Provider-aware deterministic rule must not call AI')
 assert(data.rows[0].competitionId === 'BG-100', 'Text result must preserve Competition ID');
 assert(data.rows[0].dazn === 'RC D' && data.rows[0].quinnbet === 'RC D' && data.rows[0].nti === 'RC E', 'Betgenius ATP/WTA 250 main mapping must be D/D/E');
 assert(data.rows[0].confidence === 'High' && data.rows[0].manualCheck === true, 'Exact provider rule without a round must be High/Yes');
-assert(data.rows[0].manualCheckReason === ROUND_REVIEW_REASON && data.rows[0].basis.includes(ROUND_REVIEW_REASON), 'Provider result must explicitly state the round review');
+assert(data.rows[0].manualCheckReason === ROUND_REVIEW_REASON && !data.rows[0].basis.includes(ROUND_REVIEW_REASON), 'Provider result must carry the Stage reason without duplicating it into Basis');
 
 calls = [];
 response = await onRequestPost(context({
@@ -132,7 +132,7 @@ for (const [index, expected] of expectedScreenshot.entries()) {
   assert(row.competitionId === expected[0], `Screenshot row ${index + 1} ID changed`);
   assert(row.dazn === expected[1] && row.quinnbet === expected[2] && row.nti === expected[3], `Screenshot row ${expected[0]} has wrong RCs`);
   assert(row.confidence === 'High' && row.manualCheck === true, `Screenshot row ${expected[0]} must be High/Yes`);
-  assert(row.manualCheckReason === ROUND_REVIEW_REASON && row.basis.includes(ROUND_REVIEW_REASON), `Screenshot row ${expected[0]} must explicitly mention the missing exact round`);
+  assert(row.manualCheckReason === ROUND_REVIEW_REASON && !row.basis.includes(ROUND_REVIEW_REASON), `Screenshot row ${expected[0]} must carry the Stage reason without duplicating it into Basis`);
 }
 
 calls = [];
