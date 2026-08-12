@@ -1,34 +1,16 @@
 import { providerFromCompetitionId } from './input-contract.js';
-import { mergeRequiredProviderTennisRules } from './provider-tennis-rules.js';
-
-const RC_ORDER = ['A','B','C','D','E','F','G','H','I'];
 
 export function buildRuntimeIndex(source = '') {
   const bundle = source && typeof source === 'object' && !Array.isArray(source) ? source : null;
-  const knowledge = bundle ? String(bundle.knowledge || '') : String(source || '');
   const deterministicRules = bundle?.deterministicRules && typeof bundle.deterministicRules === 'object'
     ? bundle.deterministicRules
     : null;
 
-  const footballRcI = new Set();
-  const marker = '## 7. Explicit RC I Football Leagues';
-  const start = knowledge.indexOf(marker);
-  if (start >= 0) {
-    const tail = knowledge.slice(start + marker.length);
-    const next = tail.search(/\n##\s+8\./);
-    const section = next >= 0 ? tail.slice(0, next) : tail;
-    for (const line of section.split('\n')) {
-      const match = line.match(/^\s*\d+\.\s+(.+?)\s*$/);
-      if (match) footballRcI.add(normalize(match[1]));
-    }
-  }
 
   return {
-    footballRcI,
     deterministicRules,
-    compiledRules: compileRules(mergeRequiredProviderTennisRules(deterministicRules?.rules, {
-      rulesVersion: deterministicRules?.providerTennisRulesVersion,
-    })),
+    compiledRules: compileRules(deterministicRules?.rules),
+    compiledTransforms: compileTransforms(bundle?.resultTransforms),
   };
 }
 
@@ -43,37 +25,19 @@ export function classifyDeterministic(row, index) {
     row?.competitionId ?? row?.eventId ?? row?.competitionID ?? row?.eventID ?? '',
   );
   const dataProvider = normalize(inferredProvider);
-  const config = index?.deterministicRules || {};
-  if (!index?.compiledRules?.length && !config.footballRcI) return null;
+  if (!index?.compiledRules?.length) return null;
 
   let result = null;
-  const football = config.footballRcI;
-  if (
-    sport === 'football' &&
-    football?.enabled &&
-    index?.footballRcI?.has(competition)
-  ) {
-    result = confirmed(football.dazn, football.quinnbet, football.nti, football.basis || 'Football RC I explicit list', 'Risk Class guide');
-  }
-
-  if (!result) {
-    for (const compiled of index?.compiledRules || []) {
+  for (const compiled of index?.compiledRules || []) {
       if (compiled.sport !== sport) continue;
       if (compiled.providers.length && !compiled.providers.includes(dataProvider)) continue;
       if (!matches(compiled, competition, dataProvider)) continue;
-      result = confirmed(
-        compiled.dazn,
-        compiled.quinnbet,
-        compiled.nti,
-        compiled.basis,
-        compiled.source || 'Risk Class guide',
-      );
+      result = confirmed(compiled);
       break;
     }
-  }
 
   if (!result) return null;
-  if (isOutrightText(competitionRaw)) result = applyOutright(result);
+  result = applyTransforms(result, { ...row, sport: sportRaw, competition: competitionRaw, dataProvider: inferredProvider }, index?.compiledTransforms || []);
   return { ...result, sport: sportRaw, competition: competitionRaw, route: 'deterministic' };
 }
 
@@ -90,6 +54,7 @@ function compileRules(rules) {
         id: String(item.id || ''),
         sport,
         providers: compileProviders(item.providers),
+        exact: compileExact(match.exact),
         any: compileList(match.any),
         all: compileList(match.all),
         none: compileList(match.none),
@@ -98,6 +63,12 @@ function compileRules(rules) {
         nti: String(item.nti || ''),
         basis: String(item.basis || ''),
         source: String(item.source || 'Risk Class guide'),
+        confidence: String(item.confidence || 'High'),
+        manualCheck: Boolean(item.manualCheck),
+        manualCheckType: String(item.manualCheckType || ''),
+        manualCheckReason: String(item.manualCheckReason || ''),
+        needsEscalation: Boolean(item.needsEscalation),
+        escalationReason: String(item.escalationReason || ''),
       });
     } catch {
       // Invalid regexes are rejected by Rules Manager validation. Skip here defensively.
@@ -106,10 +77,49 @@ function compileRules(rules) {
   return output;
 }
 
+function compileTransforms(transforms) {
+  if (!Array.isArray(transforms)) return [];
+  const output = [];
+  for (const item of transforms) {
+    if (!item || typeof item !== 'object') continue;
+    try {
+      output.push({
+        id: String(item.id || ''),
+        sports: (Array.isArray(item.sports) ? item.sports : []).map(normalize).filter(Boolean),
+        providers: compileProviders(item.providers),
+        field: String(item.field || 'competition'),
+        any: compileList(item.match?.any),
+        all: compileList(item.match?.all),
+        none: compileList(item.match?.none),
+        brandMap: normalizeBrandMap(item.brandMap),
+        basisSuffix: String(item.basisSuffix || ''),
+      });
+    } catch {
+      // Validation catches malformed regexes. Skip defensively at runtime.
+    }
+  }
+  return output;
+}
+
+function normalizeBrandMap(value) {
+  const map = new Map();
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return map;
+  for (const [from, to] of Object.entries(value)) {
+    const fromRc = normalizeRc(from);
+    const toRc = normalizeRc(to);
+    if (fromRc && toRc) map.set(fromRc, toRc);
+  }
+  return map;
+}
+
 function compileProviders(values) {
   return (Array.isArray(values) ? values : [])
     .map((value) => normalize(value))
     .filter(Boolean);
+}
+
+function compileExact(values) {
+  return new Set((Array.isArray(values) ? values : []).map(normalize).filter(Boolean));
 }
 
 function compileList(values) {
@@ -119,46 +129,73 @@ function compileList(values) {
 }
 
 function matches(rule, competition, dataProvider) {
+  if (rule.exact.size && !rule.exact.has(competition)) return false;
   const test = (pattern) => pattern.test(competition) || Boolean(dataProvider && pattern.test(dataProvider));
   if (rule.any.length && !rule.any.some(test)) return false;
   if (rule.all.length && !rule.all.every(test)) return false;
   if (rule.none.some(test)) return false;
-  return rule.any.length > 0 || rule.all.length > 0;
+  return rule.exact.size > 0 || rule.any.length > 0 || rule.all.length > 0;
 }
 
-function confirmed(dazn, quinnbet, nti, basis, source) {
+function confirmed(rule) {
   return {
-    dazn,
-    quinnbet,
-    nti,
-    basis,
-    confidence: 'High',
-    sources: [source || 'Risk Class guide'],
-    manualCheck: false,
+    dazn: rule.dazn,
+    quinnbet: rule.quinnbet,
+    nti: rule.nti,
+    basis: rule.basis,
+    confidence: ['High', 'Medium', 'Low'].includes(rule.confidence) ? rule.confidence : 'High',
+    sources: [rule.source || 'Risk Class guide'],
+    manualCheck: Boolean(rule.manualCheck),
+    manualCheckType: rule.manualCheckType || '',
+    manualCheckReason: rule.manualCheckReason || '',
+    needsEscalation: Boolean(rule.needsEscalation),
+    escalationReason: rule.escalationReason || '',
   };
 }
 
-function applyOutright(result) {
-  return {
-    ...result,
-    dazn: shiftOutright(result.dazn),
-    quinnbet: shiftOutright(result.quinnbet),
-    nti: shiftOutright(result.nti),
-    basis: `${result.basis}; outright +2 classes`,
-  };
+function applyTransforms(result, row, transforms) {
+  let current = { ...result };
+  for (const transform of transforms) {
+    if (!transformMatches(transform, row)) continue;
+    current = {
+      ...current,
+      dazn: mapRc(current.dazn, transform.brandMap),
+      quinnbet: mapRc(current.quinnbet, transform.brandMap),
+      nti: mapRc(current.nti, transform.brandMap),
+      global: mapRc(current.global, transform.brandMap),
+      basis: transform.basisSuffix
+        ? `${String(current.basis || '').trim()}${transform.basisSuffix}`
+        : current.basis,
+    };
+  }
+  return current;
 }
 
-function shiftOutright(value) {
-  const match = String(value || '').match(/RC\s+([A-I])/i);
+function transformMatches(transform, row) {
+  const sport = normalize(row?.sport || '');
+  const provider = normalize(row?.dataProvider || providerFromCompetitionId(row?.competitionId || ''));
+  if (transform.sports.length && !transform.sports.includes(sport)) return false;
+  if (transform.providers.length && !transform.providers.includes(provider)) return false;
+  const raw = String(row?.[transform.field] ?? '');
+  const value = normalize(raw);
+  if (transform.any.length && !transform.any.some((pattern) => pattern.test(value))) return false;
+  if (transform.all.length && !transform.all.every((pattern) => pattern.test(value))) return false;
+  if (transform.none.some((pattern) => pattern.test(value))) return false;
+  return transform.any.length > 0 || transform.all.length > 0;
+}
+
+function mapRc(value, brandMap) {
+  const text = String(value || '');
+  const match = text.match(/^\s*(RC\s+[A-I])(\s+rec\.)?\s*$/i);
   if (!match) return value;
-  const index = RC_ORDER.indexOf(match[1].toUpperCase());
-  if (index < 0) return value;
-  const shifted = RC_ORDER[Math.max(0, index - 2)];
-  return String(value).replace(/RC\s+[A-I]/i, `RC ${shifted}`);
+  const mapped = brandMap.get(normalizeRc(match[1]));
+  if (!mapped) return value;
+  return `${mapped}${match[2] ? ' rec.' : ''}`;
 }
 
-function isOutrightText(value) {
-  return /\boutright\b|\btournament winner\b|\bchampionship winner\b/i.test(String(value || ''));
+function normalizeRc(value) {
+  const match = String(value || '').trim().match(/^RC\s+([A-I])$/i);
+  return match ? `RC ${match[1].toUpperCase()}` : '';
 }
 
 function normalize(value) {

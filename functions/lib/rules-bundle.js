@@ -1,9 +1,3 @@
-import {
-  PROVIDER_TENNIS_RULES_VERSION,
-  requiredProviderTennisRuleIds,
-  requiredProviderTennisRules,
-} from './provider-tennis-rules.js';
-
 export const RULES_KEY = 'custom-gpt-v2';
 export const HISTORY_INDEX_KEY = 'rules-history-index-v1';
 export const RULES_SCHEMA_VERSION = 1;
@@ -12,70 +6,10 @@ const MAX_BUNDLE_CHARS = 750000;
 const VALID_RC = /^RC\s+[A-I]$/;
 const VALID_DATA_PROVIDERS = new Set(['Betradar', 'Betgenius', 'Databet']);
 
+// Backward-compatible export name for old callers/tests. It intentionally contains
+// no sportsbook mappings. The managed JSON is the only source of RC rules.
 export function baselineDeterministicRules() {
-  const doubles = '\\b(doubles?|mixed doubles|md|wd|xd)\\b';
-  const legacyDoubles = '\\bdoubles?\\b';
-  const legacyQualification = '\\b(qualification|qualifier|qualifying|quals?)\\b';
-
-  return {
-    engineVersion: 2,
-    providerTennisRulesVersion: PROVIDER_TENNIS_RULES_VERSION,
-    footballRcI: {
-      enabled: true,
-      dazn: 'RC I',
-      quinnbet: 'RC I',
-      nti: 'RC I',
-      basis: 'Football RC I explicit list',
-    },
-    rules: [
-      rule('tennis-srl', 'tennis', ['\\b(srl|simulated reality|virtuals?|simulated)\\b'], [], [], 'RC H', 'RC H', 'RC H', 'Operational exception: Tennis SRL / Simulated Reality not offered'),
-      rule('tennis-utr', 'tennis', ['\\butr\\b'], [], [], 'RC H', 'RC G', 'RC H', 'UTR / UTR PTT'),
-      rule('tennis-challenger-doubles', 'tennis', [], ['\\bchallenger\\b', legacyDoubles], [], 'RC G', 'RC F', 'RC G', 'Challenger Doubles'),
-
-      ...requiredProviderTennisRules(),
-
-      rule('tennis-itf-qualification', 'tennis', [], ['(?:\\bitf\\b|^wt\\b|\\bworld tennis tour\\b)', legacyQualification], [], 'RC H', 'RC G', 'RC H', 'ITF Singles Qualification'),
-      rule('tennis-itf-doubles', 'tennis', [], ['(?:\\bitf\\b|^wt\\b|\\bworld tennis tour\\b)', legacyDoubles], [legacyQualification], 'RC H', 'RC G', 'RC H', 'ITF / World Tennis Tour Doubles'),
-      rule('tennis-itf-main', 'tennis', ['(?:\\bitf\\b|^wt\\b|\\bworld tennis tour\\b)'], [], [legacyQualification, legacyDoubles], 'RC G', 'RC F', 'RC G', 'ITF / World Tennis Tour Singles Main Draw'),
-
-      rule('golf-major-ryder', 'golf', ['\\bryder cup\\b|\\bthe masters\\b|\\bmasters tournament\\b|\\bpga championship\\b|\\bu\\.?s\\.? open\\b|\\bthe open championship\\b'], [], [], 'RC A', 'RC A', 'RC A', 'Golf Major / Ryder Cup'),
-      rule('golf-pga-tour-champions', 'golf', ['\\bpga tour champions\\b|\\bboeing classic\\b'], [], [], 'RC C', 'RC C', 'RC C', 'PGA Tour Champions / Golf other'),
-      rule('golf-korn-ferry-lpga', 'golf', ['\\bkorn ferry\\b|\\blpga\\b'], [], [], 'RC C', 'RC C', 'RC C', 'Korn Ferry / LPGA'),
-      rule('golf-pga-dp-liv', 'golf', ['\\bpga tour\\b|\\bdp world tour\\b|\\bliv golf\\b|\\bliv golf league\\b'], [], [], 'RC B', 'RC B', 'RC B', 'PGA Tour / DP World Tour / LIV'),
-
-      rule('tt-wtt-feeder', 'table tennis', ['\\bwtt feeder\\b'], [], [], 'RC D', 'RC D', 'RC D', 'Table Tennis all other comps — WTT Feeder'),
-      rule('tt-wtt-star-contender', 'table tennis', ['\\bwtt star contender\\b'], [], [], 'RC D', 'RC D', 'RC D', 'Table Tennis all other comps — WTT Star Contender'),
-      rule('tt-singapore-smash', 'table tennis', ['\\bsingapore smash\\b'], [], [], 'RC D', 'RC D', 'RC D', 'Table Tennis explicit RC D category'),
-
-      rule('badminton-world-champs-doubles', 'badminton', [], ['\\bworld championships?\\b', '\\b(doubles?|mixed doubles|md|wd|xd)\\b'], [], 'RC C', 'RC C', 'RC C', 'Badminton World Championships Doubles / XD'),
-      rule('badminton-super-750', 'badminton', ['\\bsuper 750\\b'], [], [], 'RC C', 'RC C', 'RC C', 'Badminton Super 750'),
-      rule('badminton-elite', 'badminton', ['\\bworld championships?\\b|\\bsuper 1000\\b|\\btour finals\\b|\\beuropean championship\\b'], [], [], 'RC A', 'RC A', 'RC A', 'Badminton elite category'),
-      rule('badminton-malaysia-international', 'badminton', ['\\bmalaysia international\\b'], [], [], 'RC D', 'RC D', 'RC D', 'Badminton all other leagues'),
-
-      rule('mma-contender-series', 'mma', ['\\bcontender series\\b'], [], [], 'RC E', 'RC E', 'RC E', 'MMA Contender Series / all-others RC E'),
-    ],
-  };
-}
-
-function rule(id, sport, any, all, none, dazn, quinnbet, nti, basis, providers = []) {
-  const match = {
-    any: [...any],
-    all: [...all],
-    none: [...none],
-  };
-  const output = { id, sport, match, dazn, quinnbet, nti, basis, source: 'Risk Class guide' };
-  if (providers.length) {
-    output.providers = [...providers];
-    // Keep managed provider rules inert on older deterministic engines that do not
-    // understand the providers field. Engine v2 also tests these sentinels against
-    // normalized provider context, while v1 tests competition text only.
-    match.all.push(`\\b(?:${providers.map((provider) => regexEscape(provider.toLowerCase())).join('|')})\\b`);
-  }
-  return output;
-}
-
-function regexEscape(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return { engineVersion: 2, rules: [] };
 }
 
 export function migrateLegacyBundle(value) {
@@ -89,6 +23,8 @@ export function migrateLegacyBundle(value) {
     instructions: String(source.instructions || ''),
     knowledge: String(source.knowledge || ''),
     deterministicRules: source.deterministicRules || baselineDeterministicRules(),
+    resultPolicies: Array.isArray(source.resultPolicies) ? source.resultPolicies : [],
+    resultTransforms: Array.isArray(source.resultTransforms) ? source.resultTransforms : [],
   };
   return { bundle, legacy };
 }
@@ -116,11 +52,7 @@ export function validateRulesBundle(value) {
   const deterministic = source.deterministicRules;
   if (!deterministic || typeof deterministic !== 'object') errors.push('deterministicRules is required.');
   const rules = Array.isArray(deterministic?.rules) ? deterministic.rules : [];
-  if (!rules.length) errors.push('deterministicRules.rules must contain at least one rule.');
-  const providerTennisRulesVersion = Number(deterministic?.providerTennisRulesVersion || 0);
-  if (deterministic?.providerTennisRulesVersion != null && (!Number.isInteger(providerTennisRulesVersion) || providerTennisRulesVersion < 0)) {
-    errors.push('deterministicRules.providerTennisRulesVersion must be a non-negative integer when supplied.');
-  }
+  if (!rules.length) errors.push('deterministicRules.rules must contain at least one rule. Import a complete managed JSON bundle; code does not supply fallback RC mappings.');
 
   const ids = new Set();
   for (let index = 0; index < rules.length; index += 1) {
@@ -135,22 +67,11 @@ export function validateRulesBundle(value) {
     validateRc(item.quinnbet, `${prefix}.quinnbet`, errors);
     validateRc(item.nti, `${prefix}.nti`, errors);
     if (!String(item.basis || '').trim()) errors.push(`${prefix}.basis is required.`);
+    if (item.confidence != null && !['High', 'Medium', 'Low'].includes(item.confidence)) errors.push(`${prefix}.confidence must be High, Medium or Low when supplied.`);
+    if (item.manualCheckType != null && typeof item.manualCheckType !== 'string') errors.push(`${prefix}.manualCheckType must be a string when supplied.`);
+    if (item.manualCheckReason != null && typeof item.manualCheckReason !== 'string') errors.push(`${prefix}.manualCheckReason must be a string when supplied.`);
 
-    if (item.providers != null) {
-      if (!Array.isArray(item.providers)) {
-        errors.push(`${prefix}.providers must be an array when supplied.`);
-      } else {
-        const seenProviders = new Set();
-        for (const provider of item.providers) {
-          if (!VALID_DATA_PROVIDERS.has(provider)) {
-            errors.push(`${prefix}.providers contains unsupported value: ${String(provider)}.`);
-          } else if (seenProviders.has(provider)) {
-            errors.push(`${prefix}.providers contains duplicate value: ${provider}.`);
-          }
-          seenProviders.add(provider);
-        }
-      }
-    }
+    validateProviders(item.providers, `${prefix}.providers`, errors);
 
     const match = item.match;
     if (!match || typeof match !== 'object') {
@@ -158,6 +79,14 @@ export function validateRulesBundle(value) {
       continue;
     }
     let matcherCount = 0;
+    const exact = match.exact;
+    if (exact != null) {
+      if (!Array.isArray(exact)) errors.push(`${prefix}.match.exact must be an array.`);
+      else {
+        matcherCount += exact.length;
+        for (const value of exact) if (typeof value !== 'string' || !value.trim()) errors.push(`${prefix}.match.exact contains an empty/non-string value.`);
+      }
+    }
     for (const key of ['any', 'all', 'none']) {
       const patterns = match[key];
       if (patterns == null) continue;
@@ -166,15 +95,12 @@ export function validateRulesBundle(value) {
         continue;
       }
       matcherCount += key === 'none' ? 0 : patterns.length;
-      for (const pattern of patterns) {
-        if (typeof pattern !== 'string' || !pattern) errors.push(`${prefix}.match.${key} contains an empty/non-string regex.`);
-        else {
-          try { new RegExp(pattern, 'i'); } catch { errors.push(`${prefix}.match.${key} contains invalid regex: ${pattern}`); }
-        }
-      }
+      validateRegexList(patterns, `${prefix}.match.${key}`, errors);
     }
-    if (!matcherCount) errors.push(`${prefix}.match must contain at least one positive any/all regex.`);
+    if (!matcherCount) errors.push(`${prefix}.match must contain at least one positive exact/any/all matcher.`);
 
+    // Provider sentinels keep a provider rule inert if an old engine that ignores the
+    // providers field ever reads the same managed JSON. This is structural safety only.
     if (Array.isArray(item.providers) && item.providers.length) {
       const positivePatterns = [
         ...(Array.isArray(match.any) ? match.any : []),
@@ -188,35 +114,8 @@ export function validateRulesBundle(value) {
     }
   }
 
-  if (providerTennisRulesVersion >= PROVIDER_TENNIS_RULES_VERSION) {
-    for (const id of requiredProviderTennisRuleIds()) {
-      if (!ids.has(id)) errors.push(`Managed provider Tennis rules version ${providerTennisRulesVersion} is missing required rule: ${id}.`);
-    }
-  }
-
-  if (deterministic?.footballRcI?.enabled) {
-    validateRc(deterministic.footballRcI.dazn, 'deterministicRules.footballRcI.dazn', errors);
-    validateRc(deterministic.footballRcI.quinnbet, 'deterministicRules.footballRcI.quinnbet', errors);
-    validateRc(deterministic.footballRcI.nti, 'deterministicRules.footballRcI.nti', errors);
-  }
-
-  const srl = rules.find((item) => item?.id === 'tennis-srl');
-  if (!srl) errors.push('Required operational override `tennis-srl` is missing.');
-  else if (![srl.dazn, srl.quinnbet, srl.nti].every((value) => value === 'RC H')) {
-    errors.push('Required operational override `tennis-srl` must remain RC H / RC H / RC H while Tennis SRL is not offered.');
-  }
-
-  const policyText = `${source.instructions || ''}\n${source.knowledge || ''}`;
-  if (!/High\s*(?:→|->|=|normally)[^\n]{0,100}(?:Manual check\s*=\s*)?No/i.test(policyText) && !/High[^\n]{0,100}Manual check[^\n]{0,40}No/i.test(policyText)) {
-    warnings.push('Could not automatically confirm the normal High → Manual check No doctrine in rules text. Review before publishing.');
-  }
-  if (!/Tennis\/?Snooker|Tennis or Snooker/i.test(policyText) || !/missing[- ]round|no exact round|round\/stage not provided/i.test(policyText) || !/High[^\n]{0,220}Manual check[^\n]{0,80}Yes/i.test(policyText)) {
-    warnings.push('Could not automatically confirm the Tennis/Snooker missing-round High + Manual check Yes exception. Review before publishing.');
-  }
-  if (!/Simulated Reality|Tennis SRL/i.test(source.knowledge || '')) warnings.push('Knowledge text does not visibly mention the Tennis SRL / Simulated Reality exception.');
-  if (/blank\s+(?:brand\s+)?cell\s+(?:is\s+)?not\s+(?:the\s+)?same\s+as\s+global/i.test(`${source.instructions || ''}\n${source.knowledge || ''}`)) {
-    warnings.push('Rules text still contains the obsolete blank-brand-not-Global doctrine. Review Global inheritance before publishing.');
-  }
+  validateResultPolicies(source.resultPolicies, errors);
+  validateResultTransforms(source.resultTransforms, errors);
 
   return {
     valid: errors.length === 0,
@@ -226,11 +125,113 @@ export function validateRulesBundle(value) {
       schemaVersion: Number(source.schemaVersion || 0),
       version: String(source.version || ''),
       deterministicRuleCount: rules.length,
+      resultPolicyCount: Array.isArray(source.resultPolicies) ? source.resultPolicies.length : 0,
+      resultTransformCount: Array.isArray(source.resultTransforms) ? source.resultTransforms.length : 0,
       knowledgeChars: typeof source.knowledge === 'string' ? source.knowledge.length : 0,
       instructionChars: typeof source.instructions === 'string' ? source.instructions.length : 0,
       bundleChars: serializedLength,
     },
   };
+}
+
+function validateResultPolicies(value, errors) {
+  if (value == null) return;
+  if (!Array.isArray(value)) {
+    errors.push('resultPolicies must be an array when supplied.');
+    return;
+  }
+  const ids = new Set();
+  value.forEach((policy, index) => {
+    const prefix = `resultPolicies[${index}]`;
+    if (!policy || typeof policy !== 'object' || Array.isArray(policy)) {
+      errors.push(`${prefix} must be an object.`);
+      return;
+    }
+    const id = String(policy.id || '').trim();
+    if (!id) errors.push(`${prefix}.id is required.`);
+    else if (ids.has(id)) errors.push(`Duplicate result policy id: ${id}.`);
+    else ids.add(id);
+    if (policy.confidences != null && (!Array.isArray(policy.confidences) || policy.confidences.some((v) => !['High', 'Medium', 'Low'].includes(v)))) errors.push(`${prefix}.confidences must be an array containing only High, Medium or Low.`);
+    if (policy.sports != null && (!Array.isArray(policy.sports) || policy.sports.some((v) => typeof v !== 'string' || !v.trim()))) errors.push(`${prefix}.sports must be an array of non-empty strings.`);
+    validateProviders(policy.providers, `${prefix}.providers`, errors);
+    if (policy.field != null && (typeof policy.field !== 'string' || !policy.field.trim())) errors.push(`${prefix}.field must be a non-empty string when supplied.`);
+    validateRegexList(policy.whenMissingPatterns, `${prefix}.whenMissingPatterns`, errors, true);
+    validateRegexList(policy.requirePatterns, `${prefix}.requirePatterns`, errors, true);
+    validateRegexList(policy.excludePatterns, `${prefix}.excludePatterns`, errors, true);
+    if (![policy.whenMissingPatterns, policy.requirePatterns, policy.excludePatterns].some((list) => Array.isArray(list) && list.length) && !(Array.isArray(policy.confidences) && policy.confidences.length) && !(Array.isArray(policy.sports) && policy.sports.length) && !(Array.isArray(policy.providers) && policy.providers.length)) {
+      errors.push(`${prefix} must contain at least one match condition.`);
+    }
+    if (policy.manualCheck != null && typeof policy.manualCheck !== 'boolean') errors.push(`${prefix}.manualCheck must be boolean when supplied.`);
+    if (policy.manualCheckType != null && (typeof policy.manualCheckType !== 'string' || !policy.manualCheckType.trim())) errors.push(`${prefix}.manualCheckType must be a non-empty string when supplied.`);
+    if (policy.reason != null && typeof policy.reason !== 'string') errors.push(`${prefix}.reason must be a string when supplied.`);
+    if (policy.suppressEscalationWhenHigh != null && typeof policy.suppressEscalationWhenHigh !== 'boolean') errors.push(`${prefix}.suppressEscalationWhenHigh must be boolean when supplied.`);
+  });
+}
+
+function validateResultTransforms(value, errors) {
+  if (value == null) return;
+  if (!Array.isArray(value)) {
+    errors.push('resultTransforms must be an array when supplied.');
+    return;
+  }
+  const ids = new Set();
+  value.forEach((transform, index) => {
+    const prefix = `resultTransforms[${index}]`;
+    if (!transform || typeof transform !== 'object' || Array.isArray(transform)) {
+      errors.push(`${prefix} must be an object.`);
+      return;
+    }
+    const id = String(transform.id || '').trim();
+    if (!id) errors.push(`${prefix}.id is required.`);
+    else if (ids.has(id)) errors.push(`Duplicate result transform id: ${id}.`);
+    else ids.add(id);
+    if (transform.sports != null && (!Array.isArray(transform.sports) || transform.sports.some((v) => typeof v !== 'string' || !v.trim()))) errors.push(`${prefix}.sports must be an array of non-empty strings.`);
+    validateProviders(transform.providers, `${prefix}.providers`, errors);
+    if (transform.field != null && (typeof transform.field !== 'string' || !transform.field.trim())) errors.push(`${prefix}.field must be a non-empty string when supplied.`);
+    const match = transform.match;
+    if (!match || typeof match !== 'object' || Array.isArray(match)) errors.push(`${prefix}.match is required.`);
+    else {
+      validateRegexList(match.any, `${prefix}.match.any`, errors, true);
+      validateRegexList(match.all, `${prefix}.match.all`, errors, true);
+      validateRegexList(match.none, `${prefix}.match.none`, errors, true);
+      if (![match.any, match.all].some((list) => Array.isArray(list) && list.length)) errors.push(`${prefix}.match must contain at least one positive any/all regex.`);
+    }
+    if (!transform.brandMap || typeof transform.brandMap !== 'object' || Array.isArray(transform.brandMap) || !Object.keys(transform.brandMap).length) errors.push(`${prefix}.brandMap must be a non-empty object.`);
+    else for (const [from, to] of Object.entries(transform.brandMap)) {
+      validateRc(from, `${prefix}.brandMap key ${from}`, errors);
+      validateRc(to, `${prefix}.brandMap.${from}`, errors);
+    }
+    if (transform.basisSuffix != null && typeof transform.basisSuffix !== 'string') errors.push(`${prefix}.basisSuffix must be a string when supplied.`);
+  });
+}
+
+function validateProviders(value, path, errors) {
+  if (value == null) return;
+  if (!Array.isArray(value)) {
+    errors.push(`${path} must be an array when supplied.`);
+    return;
+  }
+  const seen = new Set();
+  for (const provider of value) {
+    if (!VALID_DATA_PROVIDERS.has(provider)) errors.push(`${path} contains unsupported value: ${String(provider)}.`);
+    else if (seen.has(provider)) errors.push(`${path} contains duplicate value: ${provider}.`);
+    seen.add(provider);
+  }
+}
+
+function validateRegexList(value, path, errors, optional = false) {
+  if (value == null && optional) return;
+  if (value == null) return;
+  if (!Array.isArray(value)) {
+    errors.push(`${path} must be an array.`);
+    return;
+  }
+  for (const pattern of value) {
+    if (typeof pattern !== 'string' || !pattern) errors.push(`${path} contains an empty/non-string regex.`);
+    else {
+      try { new RegExp(pattern, 'i'); } catch { errors.push(`${path} contains invalid regex: ${pattern}`); }
+    }
+  }
 }
 
 function validateRc(value, path, errors) {
@@ -242,7 +243,7 @@ function safeJsonLength(value) {
 }
 
 function emptyStats() {
-  return { schemaVersion: 0, version: '', deterministicRuleCount: 0, knowledgeChars: 0, instructionChars: 0, bundleChars: 0 };
+  return { schemaVersion: 0, version: '', deterministicRuleCount: 0, resultPolicyCount: 0, resultTransformCount: 0, knowledgeChars: 0, instructionChars: 0, bundleChars: 0 };
 }
 
 export function diffRulesBundles(currentValue, nextValue) {
@@ -260,11 +261,15 @@ export function diffRulesBundles(currentValue, nextValue) {
   }
   for (const id of currentRules.keys()) if (!nextRules.has(id)) removed.push(id);
 
+  const resultPoliciesChanged = stable(current.resultPolicies || []) !== stable(next.resultPolicies || []);
+  const resultTransformsChanged = stable(current.resultTransforms || []) !== stable(next.resultTransforms || []);
   return {
     versionFrom: String(current.version || ''),
     versionTo: String(next.version || ''),
     instructionsChanged: String(current.instructions || '') !== String(next.instructions || ''),
     knowledgeChanged: String(current.knowledge || '') !== String(next.knowledge || ''),
+    resultPoliciesChanged,
+    resultTransformsChanged,
     instructionCharDelta: String(next.instructions || '').length - String(current.instructions || '').length,
     knowledgeCharDelta: String(next.knowledge || '').length - String(current.knowledge || '').length,
     deterministic: { added, removed, changed },
@@ -272,6 +277,7 @@ export function diffRulesBundles(currentValue, nextValue) {
       String(current.version || '') !== String(next.version || '') ||
       String(current.instructions || '') !== String(next.instructions || '') ||
       String(current.knowledge || '') !== String(next.knowledge || '') ||
+      resultPoliciesChanged || resultTransformsChanged ||
       added.length || removed.length || changed.length
     ),
   };
@@ -298,7 +304,7 @@ export async function loadCurrentRulesBundle(kv, { migrateLegacy = true } = {}) 
     const next = {
       ...migrated.bundle,
       migratedAt: new Date().toISOString(),
-      migrationNote: 'Added schemaVersion and deterministicRules so the managed KV bundle becomes the single rule source.',
+      migrationNote: 'Added schemaVersion only. No sportsbook RC mappings are supplied by application code; import a complete managed JSON bundle.',
     };
     const validation = validateRulesBundle(next);
     if (validation.valid) {
