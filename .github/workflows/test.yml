@@ -40,6 +40,8 @@ jobs:
           node --check tests/reasoning-routing-smoke.mjs
           node --check tests/event-id-global-smoke.mjs
           node --check tests/event-id-analyze-smoke.mjs
+          node --check tests/round-review-smoke.mjs
+          node --check tests/rules-runtime-upgrade-smoke.mjs
           node --check tests/routing-smoke.mjs
       - name: Routing regression
         run: node tests/routing-smoke.mjs
@@ -47,6 +49,10 @@ jobs:
         run: node tests/event-id-global-smoke.mjs
       - name: Event ID analysis pipeline regression
         run: node tests/event-id-analyze-smoke.mjs
+      - name: Tennis and Snooker round-review regression
+        run: node tests/round-review-smoke.mjs
+      - name: Managed rules runtime-upgrade regression
+        run: node tests/rules-runtime-upgrade-smoke.mjs
       - name: Admin routing regression
         run: node tests/admin-gate-smoke.mjs
       - name: Rules manager regression
