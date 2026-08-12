@@ -183,15 +183,29 @@ function normalizeResultRow(row) {
   const brandValues = [row.dazn, row.quinnbet, row.nti].map((x) => String(x || ''));
   const hasRec = brandValues.some((x) => /\brec\./i.test(x));
   const hasMissing = brandValues.some((x) => /missing rule|manual check/i.test(x));
+  const roundReview = String(row.manualCheckReason || '') === 'Round not provided'
+    || String(row.basis || '').includes('Round not provided — manual check required');
 
-  // Client-side guardrail mirrors the Custom GPT's hard consistency rules.
+  // Client-side guardrail mirrors the backend, including the approved High/Yes round exception.
   let finalConfidence = confidence;
   if (hasMissing) finalConfidence = 'Low';
   else if (hasRec && finalConfidence === 'High') finalConfidence = 'Medium';
-  if (finalConfidence !== 'High' || hasRec || hasMissing) manualCheck = true;
-  if (finalConfidence === 'High') manualCheck = false;
+  if (roundReview || finalConfidence !== 'High' || hasRec || hasMissing) manualCheck = true;
+  if (finalConfidence === 'High' && !roundReview) manualCheck = false;
 
   return { ...row, confidence: finalConfidence, manualCheck };
+}
+
+function manualCheckExportText(row) {
+  if (!row?.manualCheck) return 'No';
+  const reason = String(row?.manualCheckReason || '').trim();
+  return reason ? `Yes — ${reason}` : 'Yes';
+}
+
+function manualCheckDisplay(row) {
+  const full = manualCheckExportText(row);
+  const short = String(row?.manualCheckReason || '').trim() === 'Round not provided' ? 'Yes · round' : full;
+  return { full, short };
 }
 
 function sourceChips(sources) {
@@ -208,6 +222,7 @@ function renderResults(payload) {
   for (const row of state.results) {
     const tr = document.createElement('tr');
     const confClass = row.confidence.toLowerCase();
+    const manual = manualCheckDisplay(row);
     tr.innerHTML = `
       <td>${escapeHtml(row.sport)}</td>
       <td>${escapeHtml(row.competition)}</td>
@@ -218,7 +233,7 @@ function renderResults(payload) {
       <td>${escapeHtml(row.basis)}</td>
       <td><span class="confidence-pill ${confClass}">${escapeHtml(row.confidence)}</span></td>
       <td>${sourceChips(row.sources)}</td>
-      <td><span class="manual-pill ${row.manualCheck ? 'yes' : 'no'}">${row.manualCheck ? 'Yes' : 'No'}</span></td>
+      <td><span class="manual-pill ${row.manualCheck ? 'yes' : 'no'}" title="${escapeHtml(manual.full)}">${escapeHtml(manual.short)}</span></td>
     `;
     els.resultsBody.appendChild(tr);
   }
@@ -289,7 +304,7 @@ els.analyzeBtn.addEventListener('click', analyze);
 
 function tsv() {
   const rows = [['Sport','Competition','Competition ID','DAZN','Quinnbet','NTI','Basis','Confidence','Sources','Manual check']];
-  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheck?'Yes':'No']);
+  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),manualCheckExportText(r)]);
   return rows.map((row) => row.map((cell) => String(cell ?? '').replace(/\t/g,' ').replace(/\r?\n/g,' ')).join('\t')).join('\n');
 }
 
@@ -306,7 +321,7 @@ function csvEscape(value) {
 }
 els.csvBtn.addEventListener('click', () => {
   const rows = [['Sport','Competition','Competition ID','DAZN','Quinnbet','NTI','Basis','Confidence','Sources','Manual check']];
-  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheck?'Yes':'No']);
+  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),manualCheckExportText(r)]);
   const blob = new Blob([rows.map((row) => row.map(csvEscape).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

@@ -19,7 +19,7 @@ export async function onRequestGet(context) {
     return json({ ok: false, error: 'RISK_RULES KV binding must support read/write access.' }, 503);
   }
 
-  const bundle = await loadCurrentRulesBundle(kv, { migrateLegacy: true });
+  const bundle = await loadCurrentRulesBundle(kv, { migrateLegacy: true, runtimeUpgrade: false });
   if (!bundle) return json({ ok: false, error: `Could not load ${RULES_KEY}.` }, 503);
   const validation = validateRulesBundle(bundle);
   const history = await listRulesHistory(kv);
@@ -30,7 +30,7 @@ export async function onRequestPost(context) {
   const auth = await requireAdmin(context);
   if (auth) return auth;
   const kv = context.env.RISK_RULES;
-  const current = await loadCurrentRulesBundle(kv, { migrateLegacy: true });
+  const current = await loadCurrentRulesBundle(kv, { migrateLegacy: true, runtimeUpgrade: false });
   if (!current) return json({ ok: false, error: 'Current rules bundle is unavailable.' }, 503);
 
   let body;
@@ -52,7 +52,7 @@ export async function onRequestPut(context) {
   let body;
   try { body = await context.request.json(); } catch { return json({ ok: false, error: 'Invalid JSON request.' }, 400); }
   const action = String(body?.action || 'publish');
-  const current = await loadCurrentRulesBundle(kv, { migrateLegacy: true });
+  const current = await loadCurrentRulesBundle(kv, { migrateLegacy: true, runtimeUpgrade: false });
   if (!current) return json({ ok: false, error: 'Current rules bundle is unavailable.' }, 503);
 
   if (action === 'rollback') {
@@ -105,7 +105,7 @@ async function requireAdmin(context) {
 }
 
 function gptGuide(version) {
-  return `You are editing the complete Risk Class rules bundle currently at version ${version || 'unknown'}. Apply only the requested rule changes. Preserve all unrelated instructions, knowledge, deterministic rules, IDs, regexes and brand mappings exactly. Keep schemaVersion=1. Every deterministic rule must return confirmed RC A-I values for DAZN, Quinnbet and NTI. Do not remove the tennis-srl operational override unless explicitly instructed; while active it must remain RC H / RC H / RC H. Preserve the final-answer confidence doctrine: High => Manual check No; Medium/Low => Yes; rec. can never be High; missing rule => Low/Yes. Return the COMPLETE updated JSON file, not a patch, explanation, markdown fence or abbreviated excerpt. Update the version field to a new meaningful version.`;
+  return `You are editing the complete Risk Class rules bundle currently at version ${version || 'unknown'}. Apply only the requested rule changes. Preserve all unrelated instructions, knowledge, deterministic rules, IDs, regexes and brand mappings exactly. Keep schemaVersion=1. Every deterministic rule must return confirmed RC A-I values for DAZN, Quinnbet and NTI. Do not remove the tennis-srl operational override unless explicitly instructed; while active it must remain RC H / RC H / RC H. Preserve the final-answer confidence doctrine: High normally => Manual check No; the approved exception is Tennis or Snooker with no explicit match round, where exact RC values remain High and Manual check = Yes with Basis explicitly stating 'Round not provided — manual check required'; Medium/Low => Yes; rec. can never be High; missing rule => Low/Yes. Return the COMPLETE updated JSON file, not a patch, explanation, markdown fence or abbreviated excerpt. Update the version field to a new meaningful version.`;
 }
 
 function json(value, status = 200) {
