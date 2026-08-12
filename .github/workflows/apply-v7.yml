@@ -20,6 +20,7 @@ jobs:
         run: |
           cat .github/v7_part_00 .github/v7_part_01 .github/v7_part_02 .github/v7_part_03 | base64 -d > /tmp/v7_patch.tgz
           tar -xzf /tmp/v7_patch.tgz
+          git checkout HEAD -- .github/workflows/test.yml .github/workflows/smoke-tests.yml
       - name: Syntax and targeted regressions
         run: |
           node --check functions/lib/provider-tennis-rules.js
@@ -34,7 +35,7 @@ jobs:
           node tests/routing-smoke.mjs
       - name: Commit applied patch
         run: |
-          rm -f .github/v7_part_00 .github/v7_part_01 .github/v7_part_02 .github/v7_part_03 .github/workflows/apply-v7.yml
+          rm -f .github/v7_part_00 .github/v7_part_01 .github/v7_part_02 .github/v7_part_03
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
