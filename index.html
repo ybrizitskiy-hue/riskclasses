@@ -32,14 +32,14 @@
       <div class="hero-copy">
         <span class="kicker">Internal risk operations</span>
         <h1>Drop a screenshot.<br><span>Get risk classes.</span></h1>
-        <p>Uses the same approved rules, brand mappings, confidence thresholds, and review behavior as the production Custom GPT.</p>
+        <p>Uses the same approved rules, provider-aware tennis mappings, brand inheritance, confidence thresholds, and review behavior as the production Custom GPT.</p>
       </div>
       <div class="hero-proof" aria-label="Workflow">
-        <div class="proof-step"><span>01</span><strong>Read exact rows</strong><small>Names stay exactly as shown</small></div>
+        <div class="proof-step"><span>01</span><strong>Read exact rows</strong><small>Names and IDs stay exactly as shown</small></div>
         <div class="proof-line"></div>
         <div class="proof-step"><span>02</span><strong>Apply guide</strong><small>Exact rules before research</small></div>
         <div class="proof-line"></div>
-        <div class="proof-step"><span>03</span><strong>Research only if needed</strong><small>Medium / Low cases</small></div>
+        <div class="proof-step"><span>03</span><strong>Research only if needed</strong><small>Official tour sources first</small></div>
       </div>
     </section>
 
@@ -70,8 +70,8 @@
         </div>
 
         <div id="textMode" class="input-mode">
-          <textarea id="bulkInput" spellcheck="false" placeholder="Sport&#9;Competition&#10;Tennis&#9;WT Bydgoszcz. Poland. Women Singles&#10;Cricket&#9;T20 Tier B Tournament - Sri Lanka"></textarea>
-          <p class="input-hint">Paste simple Sport + Competition rows or a full spreadsheet export. Competition names are preserved as entered.</p>
+          <textarea id="bulkInput" spellcheck="false" placeholder="Sport&#9;Competition&#9;Competition ID&#10;Tennis&#9;WT Bydgoszcz. Poland. Women Singles&#9;DB-31317&#10;Tennis&#9;WTA 250 Example. Women Singles&#9;BG-31316"></textarea>
+          <p class="input-hint">Paste Sport + Competition + Competition ID rows or a full spreadsheet export. Older two-column rows still work. Competition names and IDs are preserved as entered.</p>
         </div>
 
         <div class="composer-footer">
@@ -101,7 +101,8 @@
         <div class="rules-divider"></div>
         <ul class="rules-list">
           <li><span>✓</span> Always returns DAZN, Quinnbet and NTI</li>
-          <li><span>✓</span> Blank brand cell ≠ Same as Global</li>
+          <li><span>✓</span> Global fills brands without an override</li>
+          <li><span>✓</span> U = Betradar · BG = Betgenius · DB = Databet</li>
           <li><span>✓</span> Any <code>rec.</code> can never be High</li>
           <li><span>✓</span> Tennis SRL / Simulated Reality = H / H / H</li>
           <li><span>✓</span> Football RC I list checked before analogy</li>
@@ -137,6 +138,7 @@
             <tr>
               <th>Sport</th>
               <th>Competition</th>
+              <th>Competition ID</th>
               <th>DAZN</th>
               <th>Quinnbet</th>
               <th>NTI</th>

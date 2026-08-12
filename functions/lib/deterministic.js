@@ -1,3 +1,5 @@
+import { providerFromCompetitionId } from './input-contract.js';
+
 const RC_ORDER = ['A','B','C','D','E','F','G','H','I'];
 
 export function buildRuntimeIndex(source = '') {
@@ -34,6 +36,10 @@ export function classifyDeterministic(row, index) {
 
   const sport = normalize(sportRaw);
   const competition = normalize(competitionRaw);
+  const inferredProvider = row?.dataProvider || providerFromCompetitionId(
+    row?.competitionId ?? row?.eventId ?? row?.competitionID ?? row?.eventID ?? '',
+  );
+  const dataProvider = normalize(inferredProvider);
   const config = index?.deterministicRules;
   if (!config) return null;
 
@@ -50,7 +56,8 @@ export function classifyDeterministic(row, index) {
   if (!result) {
     for (const compiled of index?.compiledRules || []) {
       if (compiled.sport !== sport) continue;
-      if (!matches(compiled, competition)) continue;
+      if (compiled.providers.length && !compiled.providers.includes(dataProvider)) continue;
+      if (!matches(compiled, competition, dataProvider)) continue;
       result = confirmed(
         compiled.dazn,
         compiled.quinnbet,
@@ -79,6 +86,7 @@ function compileRules(rules) {
       output.push({
         id: String(item.id || ''),
         sport,
+        providers: compileProviders(item.providers),
         any: compileList(match.any),
         all: compileList(match.all),
         none: compileList(match.none),
@@ -95,16 +103,23 @@ function compileRules(rules) {
   return output;
 }
 
+function compileProviders(values) {
+  return (Array.isArray(values) ? values : [])
+    .map((value) => normalize(value))
+    .filter(Boolean);
+}
+
 function compileList(values) {
   return (Array.isArray(values) ? values : [])
     .filter((value) => typeof value === 'string' && value)
     .map((value) => new RegExp(value, 'i'));
 }
 
-function matches(rule, competition) {
-  if (rule.any.length && !rule.any.some((pattern) => pattern.test(competition))) return false;
-  if (rule.all.length && !rule.all.every((pattern) => pattern.test(competition))) return false;
-  if (rule.none.some((pattern) => pattern.test(competition))) return false;
+function matches(rule, competition, dataProvider) {
+  const test = (pattern) => pattern.test(competition) || Boolean(dataProvider && pattern.test(dataProvider));
+  if (rule.any.length && !rule.any.some(test)) return false;
+  if (rule.all.length && !rule.all.every(test)) return false;
+  if (rule.none.some(test)) return false;
   return rule.any.length > 0 || rule.all.length > 0;
 }
 

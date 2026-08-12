@@ -8,6 +8,12 @@ import {
 } from '../lib/provider-config.js';
 import { effortFor, loadReasoningConfig } from '../lib/reasoning-config.js';
 import { callAiJson } from '../lib/ai-client.js';
+import {
+  decorateInputRows,
+  filterGlobalInheritanceWarnings,
+  parseCompetitionRows,
+  resolveGlobalBrands,
+} from '../lib/input-contract.js';
 
 const MAX_IMAGES = 4;
 const MAX_TEXT_CHARS = 50000;
@@ -22,10 +28,11 @@ const EXTRACTION_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['sport', 'competition'],
+        required: ['sport', 'competition', 'competitionId'],
         properties: {
           sport: { type: 'string' },
           competition: { type: 'string' },
+          competitionId: { type: 'string' },
         },
       },
     },
@@ -44,13 +51,14 @@ const CLASSIFIER_SCHEMA = {
         type: 'object',
         additionalProperties: false,
         required: [
-          'inputIndex', 'sport', 'competition', 'dazn', 'quinnbet', 'nti', 'basis',
+          'inputIndex', 'sport', 'competition', 'global', 'dazn', 'quinnbet', 'nti', 'basis',
           'confidence', 'sources', 'manualCheck', 'needsEscalation', 'escalationReason'
         ],
         properties: {
           inputIndex: { type: 'integer' },
           sport: { type: 'string' },
           competition: { type: 'string' },
+          global: { type: 'string', enum: ['', 'RC A', 'RC B', 'RC C', 'RC D', 'RC E', 'RC F', 'RC G', 'RC H', 'RC I', 'RC A rec.', 'RC B rec.', 'RC C rec.', 'RC D rec.', 'RC E rec.', 'RC F rec.', 'RC G rec.', 'RC H rec.', 'RC I rec.'] },
           dazn: { type: 'string' },
           quinnbet: { type: 'string' },
           nti: { type: 'string' },
@@ -123,13 +131,11 @@ export async function onRequestPost(context) {
     rows = extraction.result.rows || [];
     warnings.push(...(extraction.result.warnings || []));
   } else {
-    rows = parseTextRows(text);
+    rows = parseCompetitionRows(text);
     if (!rows.length) return json({ error: 'Could not identify Sport + Competition rows in the pasted text.' }, 400);
   }
 
-  rows = rows
-    .map((row, inputIndex) => ({ inputIndex, sport: String(row.sport || '').trim(), competition: String(row.competition || '').trim() }))
-    .filter((row) => row.sport && row.competition);
+  rows = decorateInputRows(rows);
 
   const runtimeIndex = buildRuntimeIndex(rulesPayload);
   const finalByIndex = new Map();
@@ -163,7 +169,7 @@ export async function onRequestPost(context) {
       telemetryCalls,
     });
     if (!primary.ok) return json({ error: primary.error }, primary.status || 502);
-    warnings.push(...(primary.result.warnings || []));
+    appendClassifierWarnings(warnings, primary.result.warnings);
 
     const latest = new Map();
     for (const result of primary.result.rows || []) latest.set(result.inputIndex, enforceConsistency(result));
@@ -184,7 +190,7 @@ export async function onRequestPost(context) {
         });
         if (research.ok) {
           researchCount = pending.length;
-          warnings.push(...(research.result.warnings || []));
+          appendClassifierWarnings(warnings, research.result.warnings);
           for (const result of research.result.rows || []) latest.set(result.inputIndex, enforceConsistency(result));
           pending = pending.filter((input) => latest.get(input.inputIndex)?.needsEscalation);
         } else {
@@ -210,7 +216,7 @@ export async function onRequestPost(context) {
         });
         if (escalation.ok) {
           escalatedCount = pending.length;
-          warnings.push(...(escalation.result.warnings || []));
+          appendClassifierWarnings(warnings, escalation.result.warnings);
           for (const result of escalation.result.rows || []) latest.set(result.inputIndex, enforceConsistency(result));
           pending = [];
         } else {
@@ -233,6 +239,7 @@ export async function onRequestPost(context) {
     return {
       sport: input.sport,
       competition: input.competition,
+      competitionId: input.competitionId,
       dazn: 'Manual check / missing rule',
       quinnbet: 'Manual check / missing rule',
       nti: 'Manual check / missing rule',
@@ -275,13 +282,13 @@ async function extractRowsFromImages(env, providerConfig, profile, images, reaso
       role: 'developer',
       content: [{
         type: 'input_text',
-        text: 'Extract Sport and Competition rows from spreadsheet-like screenshots. Preserve competition text exactly as visible, including punctuation, accents, country, gender, round and qualifier text. Keep top-to-bottom order. Across consecutive overlapping screenshots, remove only obvious exact boundary-overlap duplicates. Do not classify risk classes and do not research anything. If text is unreadable, omit that row and add a warning.',
+        text: 'Extract Sport, Competition and Competition ID/Event ID rows from spreadsheet-like screenshots. Preserve competition text and ID exactly as visible, including punctuation, accents, country, gender, round, qualifier text, capitalization and hyphens. If an older input has no ID column, return competitionId as an empty string. Keep top-to-bottom order. Across consecutive overlapping screenshots, remove only obvious exact boundary-overlap duplicates. Do not classify risk classes, infer the data provider or research anything. If material text is unreadable, omit that row and add a warning.',
       }],
     },
     {
       role: 'user',
       content: [
-        { type: 'input_text', text: `Extract every logical Sport + Competition row from ${images.length} screenshot${images.length === 1 ? '' : 's'}.` },
+        { type: 'input_text', text: `Extract every logical Sport + Competition + Competition ID row from ${images.length} screenshot${images.length === 1 ? '' : 's'}.` },
         ...images.map((imageUrl) => ({ type: 'input_image', image_url: imageUrl, detail: 'original' })),
       ],
     },
@@ -297,7 +304,7 @@ async function extractRowsFromImages(env, providerConfig, profile, images, reaso
     schema: EXTRACTION_SCHEMA,
     schemaName: 'risk_class_row_extraction',
     useWeb: false,
-    promptCacheKey: 'riskclasses-row-extraction-v2',
+    promptCacheKey: 'riskclasses-row-extraction-v3',
   });
   if (result.telemetry) telemetryCalls.push(result.telemetry);
   return result;
@@ -306,14 +313,20 @@ async function extractRowsFromImages(env, providerConfig, profile, images, reaso
 async function classifyWithProfile({ env, providerConfig, profile, rows, rules, reasoning, stage, telemetryCalls }) {
   const webAvailable = Boolean(profile?.capabilities?.webSearch && profile?.protocol === 'responses');
   const developerPrompt = buildDeveloperPrompt(rules, { webAvailable });
-  const compactRows = rows.map(({ inputIndex, sport, competition }) => ({ inputIndex, sport, competition }));
+  const compactRows = rows.map(({
+    inputIndex,
+    sport,
+    competition,
+    competitionId,
+    dataProvider,
+  }) => ({ inputIndex, sport, competition, competitionId, dataProvider }));
   const input = [
     { role: 'developer', content: [{ type: 'input_text', text: developerPrompt }] },
     {
       role: 'user',
       content: [{
         type: 'input_text',
-        text: `Classify only the rows in this JSON array. Keep inputIndex unchanged and preserve sport/competition text exactly.\n\n${JSON.stringify(compactRows)}`,
+        text: `Classify only the rows in this JSON array. Keep inputIndex unchanged and preserve sport, competition and competitionId context exactly.\n\n${JSON.stringify(compactRows)}`,
       }],
     },
   ];
@@ -338,24 +351,26 @@ function buildDeveloperPrompt(rules, { webAvailable }) {
   const researchContract = webAvailable
     ? 'A web-search tool is available in this stage. Use it only when current facts such as tournament tier, tour, division, qualifier status, participant level or esports tier are genuinely needed. Do not browse merely to confirm an exact rule.'
     : 'No web-search tool is available in this stage. If the answer materially depends on a current external fact that is not established by the canonical rules, make the best cautious answer you can and set needsEscalation=true so a research-capable or stronger configured provider can review it.';
-  return `${rules.instructions}\n\n--- CANONICAL KNOWLEDGE SOURCE ---\n${rules.knowledge}\n\n--- WEBSITE ROUTING CONTRACT (HARD) ---\nThe canonical instructions and knowledge above remain the authority. These rows were not resolved by the deterministic exact-rule layer, so classify them with the same approved behavior. Return only structured output. Keep inputIndex unchanged and preserve sport/competition text exactly. Always return DAZN, Quinnbet and NTI. Confidence is confidence in the FINAL three-brand answer: High => manualCheck false; Medium/Low => manualCheck true; any value containing 'rec.' cannot be High; any 'Manual check / missing rule' forces Low. Apply exact/operational rules before analogy. ${researchContract} Never invent brand overrides. Tennis Virtuals/SRL/Simulated Reality are RC H for all three while the not-offered exception is active. Set needsEscalation=true ONLY when the competition/base classification remains materially uncertain and another configured research/quality model could plausibly change the answer. Do NOT escalate merely because a brand cell is blank, a confirmed Global-based value is marked rec., or Manual check is required only for missing brand-specific guidance.`;
+  return `${rules.instructions}\n\n--- CANONICAL KNOWLEDGE SOURCE ---\n${rules.knowledge}\n\n--- WEBSITE ROUTING CONTRACT (HARD) ---\nThe canonical instructions and knowledge above remain the authority. These rows were not resolved by the deterministic exact-rule layer, so classify them with the same approved behavior. Return only structured output. Keep inputIndex unchanged and preserve sport/competition text exactly. Competition ID is provider context: IDs starting BG are Betgenius, IDs starting DB are Databet, and IDs starting U are Betradar. Always return a Global/base field plus DAZN, Quinnbet and NTI. The Global field must be an exact RC A-I value, 'RC X rec.' only when the Global classification itself is a genuine analogy, or an empty string only when the canonical rules genuinely provide no Global value. Global is the default for every brand that has no explicit brand-specific override: a blank or Same as Global brand value MUST inherit the Global value exactly. Do not add a rec. marker, missing-rule warning or manual check solely because the brand override is absent. If Global itself is 'RC X rec.' because the base classification is a genuine analogy, every unspecified brand inherits that same 'RC X rec.' recommendation. Only use Manual check / missing rule when neither a Global value nor a brand-specific value can be established. Confidence is confidence in the FINAL three-brand answer: High => manualCheck false; Medium/Low => manualCheck true; any value containing 'rec.' cannot be High; any 'Manual check / missing rule' forces Low. Apply exact/operational rules before analogy. For Tennis Challenger, WTA 125, ATP/WTA 250, ATP/WTA 500, ATP/WTA 1000 and Grand Slam rows, apply the exact provider-specific new-competition rule in canonical Knowledge. If the event category is not explicit, use the official ATP Tour or WTA tournament calendar/page to verify the listed level or points; do not infer it from the event name alone. ${researchContract} Never invent brand overrides. Tennis Virtuals/SRL/Simulated Reality are RC H for all three while the not-offered exception is active. Set needsEscalation=true ONLY when the competition/base classification remains materially uncertain and another configured research/quality model could plausibly change the answer. Do NOT escalate merely because a brand uses inherited Global or because Manual check is required only for a genuinely unresolved rule.`;
 }
 
 function enforceConsistency(row) {
-  const values = [row?.dazn, row?.quinnbet, row?.nti].map((value) => String(value || ''));
+  const resolved = resolveGlobalBrands(row);
+  const values = [resolved?.dazn, resolved?.quinnbet, resolved?.nti].map((value) => String(value || ''));
   const hasRec = values.some((value) => /\brec\./i.test(value));
   const hasMissing = values.some((value) => /manual check|missing rule/i.test(value));
-  let confidence = ['High', 'Medium', 'Low'].includes(row?.confidence) ? row.confidence : 'Low';
+  let confidence = ['High', 'Medium', 'Low'].includes(resolved?.confidence) ? resolved.confidence : 'Low';
   if (hasMissing) confidence = 'Low';
   else if (hasRec && confidence === 'High') confidence = 'Medium';
   const manualCheck = confidence !== 'High' || hasRec || hasMissing;
-  return { ...row, confidence, manualCheck };
+  return { ...resolved, confidence, manualCheck };
 }
 
 function stripInternal(row, input) {
   return {
     sport: input.sport,
     competition: input.competition,
+    competitionId: input.competitionId,
     dazn: row.dazn,
     quinnbet: row.quinnbet,
     nti: row.nti,
@@ -366,58 +381,8 @@ function stripInternal(row, input) {
   };
 }
 
-function parseTextRows(text) {
-  const lines = String(text || '').replace(/\r/g, '').split('\n').filter((line) => line.trim());
-  const output = [];
-  let header = null;
-
-  for (const raw of lines) {
-    const parts = splitLine(raw);
-    if (parts.length < 2) continue;
-    const normalized = parts.map(normalizeHeader);
-    const sportIndex = normalized.findIndex((value) => value === 'sport');
-    const competitionIndex = normalized.findIndex((value) => value === 'competition' || value === 'competition name');
-    if (sportIndex >= 0 && competitionIndex >= 0) {
-      header = { sportIndex, competitionIndex };
-      continue;
-    }
-
-    let sport = '';
-    let competition = '';
-    if (header) {
-      sport = parts[header.sportIndex] || '';
-      competition = parts[header.competitionIndex] || '';
-    } else if (parts.length >= 3 && isKnownSport(parts[1])) {
-      sport = parts[1];
-      competition = parts[2];
-    } else {
-      sport = parts[0];
-      competition = parts[1];
-    }
-
-    sport = String(sport || '').trim();
-    competition = String(competition || '').trim();
-    if (sport && competition && !(/^sport$/i.test(sport) && /^competition/i.test(competition))) output.push({ sport, competition });
-  }
-  return output;
-}
-
-function splitLine(line) {
-  if (line.includes('\t')) return line.split('\t').map((value) => value.trim());
-  if (line.includes(';')) return line.split(';').map((value) => value.trim());
-  return line.split(/\s{2,}/).map((value) => value.trim()).filter(Boolean);
-}
-
-function normalizeHeader(value) {
-  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function isKnownSport(value) {
-  return new Set([
-    'american football','aussie rules','badminton','bandy','baseball','basketball','beach volley','boxing','counter strike',
-    'cricket','darts','dota 2','football','futsal','golf','handball','horse racing','ice hockey','league of legends','mma',
-    'rugby league','rugby union','snooker','table tennis','tennis','valorant','volleyball','water polo'
-  ]).has(normalizeHeader(value));
+function appendClassifierWarnings(target, values) {
+  target.push(...filterGlobalInheritanceWarnings(values));
 }
 
 function summarizeTelemetry({ routingMode, calls, totalRows, deterministicCount, unresolvedCount, researchCount, escalatedCount, providerConfigVersion, reasoningConfigVersion }) {

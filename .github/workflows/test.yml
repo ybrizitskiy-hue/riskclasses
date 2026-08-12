@@ -15,6 +15,7 @@ jobs:
           node-version: '22'
       - name: Syntax checks
         run: |
+          node --check app.js
           node --check routing.js
           node --check rules-manager.js
           node --check provider-manager.js
@@ -31,13 +32,21 @@ jobs:
           node --check functions/lib/reasoning-config.js
           node --check functions/lib/cloudflare-provider-admin.js
           node --check functions/lib/deterministic.js
+          node --check functions/lib/input-contract.js
           node --check functions/lib/rules-bundle.js
           node --check tests/chat-web-search-smoke.mjs
           node --check tests/prompt-cache-key-smoke.mjs
           node --check tests/reasoning-config-smoke.mjs
           node --check tests/reasoning-routing-smoke.mjs
+          node --check tests/event-id-global-smoke.mjs
+          node --check tests/event-id-analyze-smoke.mjs
+          node --check tests/routing-smoke.mjs
       - name: Routing regression
         run: node tests/routing-smoke.mjs
+      - name: Event ID and Global inheritance regression
+        run: node tests/event-id-global-smoke.mjs
+      - name: Event ID analysis pipeline regression
+        run: node tests/event-id-analyze-smoke.mjs
       - name: Admin routing regression
         run: node tests/admin-gate-smoke.mjs
       - name: Rules manager regression
