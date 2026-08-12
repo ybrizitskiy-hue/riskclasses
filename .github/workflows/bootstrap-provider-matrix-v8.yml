@@ -1,0 +1,126 @@
+name: Bootstrap exact provider Tennis matrix correction
+
+on:
+  push:
+    branches:
+      - fix/provider-tennis-matrix-v8
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/provider-tennis-matrix-v8
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply exact matrix correction and regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_exact(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              actual = text.count(old)
+              if actual != count:
+                  raise SystemExit(f'{path}: expected {count} occurrence(s), found {actual}: {old!r}')
+              p.write_text(text.replace(old, new), encoding='utf-8')
+
+          provider = 'functions/lib/provider-tennis-rules.js'
+          replace_exact(provider,
+              'export const PROVIDER_TENNIS_RULES_VERSION = 2;',
+              'export const PROVIDER_TENNIS_RULES_VERSION = 3;')
+          replace_exact(provider,
+              "providerRule('tennis-bg-challenger-singles', 'Betgenius', [CHALLENGER], [QUALIFICATION, DOUBLES, NON_STANDARD_SINGLES], 'RC G', 'RC G', 'RC G', 'Betgenius Challenger Singles; Global G, NTI G')",
+              "providerRule('tennis-bg-challenger-singles', 'Betgenius', [CHALLENGER], [QUALIFICATION, DOUBLES, NON_STANDARD_SINGLES], 'RC E', 'RC E', 'RC G', 'Betgenius Challenger Singles; Global E, NTI G')")
+          replace_exact(provider,
+              "providerRule('tennis-bg-wta125-singles', 'Betgenius', [WTA_125], [QUALIFICATION, DOUBLES, NON_STANDARD_SINGLES], 'RC G', 'RC G', 'RC G', 'Betgenius WTA 125 Singles; Global G, NTI G')",
+              "providerRule('tennis-bg-wta125-singles', 'Betgenius', [WTA_125], [QUALIFICATION, DOUBLES, NON_STANDARD_SINGLES], 'RC E', 'RC E', 'RC G', 'Betgenius WTA 125 Singles; Global E, NTI G')")
+          replace_exact(provider,
+              '- Betgenius main draw/non-qualification: Global RC G; NTI RC G. Therefore G/G/G.',
+              '- Betgenius main draw/non-qualification: Global RC E; NTI RC G. Therefore E/E/G.',
+              count=2)
+
+          global_test = 'tests/event-id-global-smoke.mjs'
+          replace_exact(global_test,
+              'canonicalBundle.deterministicRules.providerTennisRulesVersion === 2',
+              'canonicalBundle.deterministicRules.providerTennisRulesVersion === 3')
+          replace_exact(global_test,
+              "['BG-2', 'ATP Challenger 100 Example. Men Singles', 'RC G', 'RC G', 'RC G']",
+              "['BG-2', 'ATP Challenger 100 Example. Men Singles', 'RC E', 'RC E', 'RC G']")
+          replace_exact(global_test,
+              "['BG-4', 'WTA 125 Example. Women Singles', 'RC G', 'RC G', 'RC G']",
+              "['BG-4', 'WTA 125 Example. Women Singles', 'RC E', 'RC E', 'RC G']")
+
+          round_test = 'tests/provider-tennis-round-smoke.mjs'
+          replace_exact(round_test,
+              'PROVIDER_TENNIS_RULES_VERSION === 2',
+              'PROVIDER_TENNIS_RULES_VERSION === 3')
+          replace_exact(round_test,
+              "['BG-2', 'ATP Challenger Example', 'RC G', 'RC G', 'RC G']",
+              "['BG-2', 'ATP Challenger Example', 'RC E', 'RC E', 'RC G']")
+          replace_exact(round_test,
+              "['BG-4', 'WTA 125 Example', 'RC G', 'RC G', 'RC G']",
+              "['BG-4', 'WTA 125 Example', 'RC E', 'RC E', 'RC G']")
+
+          insertion_point = "assert(managedAuthority?.dazn === 'RC F' && managedAuthority?.nti === 'RC F', 'Published marker must return authority to managed Rules Manager data');\n"
+          upgrade_block = r'''
+
+          // Version 2 contained the rejected G/G/G interpretation for Betgenius main
+          // Challenger and WTA 125. Version 3 must replace those same-ID managed rows
+          // at runtime so the corrected E/E/G matrix is effective before KV v8 is published.
+          const staleVersionTwoRules = {
+            ...staleRules,
+            providerTennisRulesVersion: 2,
+            rules: required.map((item) => {
+              if (item.id === 'tennis-bg-challenger-singles' || item.id === 'tennis-bg-wta125-singles') {
+                return { ...item, dazn: 'RC G', quinnbet: 'RC G', nti: 'RC G', basis: 'Rejected v2 G/G/G interpretation' };
+              }
+              return item;
+            }),
+          };
+          const upgradedBgChallenger = classifyDeterministic(
+            { sport: 'Tennis', competition: 'ATP Challenger Version Two Example', competitionId: 'BG-778' },
+            buildRuntimeIndex({ deterministicRules: staleVersionTwoRules }),
+          );
+          assert(
+            upgradedBgChallenger?.dazn === 'RC E' && upgradedBgChallenger?.quinnbet === 'RC E' && upgradedBgChallenger?.nti === 'RC G',
+            'Runtime v3 must replace the rejected v2 Betgenius Challenger main mapping with E/E/G',
+          );
+          const upgradedBgWta125 = classifyDeterministic(
+            { sport: 'Tennis', competition: 'WTA 125 Version Two Example', competitionId: 'BG-779' },
+            buildRuntimeIndex({ deterministicRules: staleVersionTwoRules }),
+          );
+          assert(
+            upgradedBgWta125?.dazn === 'RC E' && upgradedBgWta125?.quinnbet === 'RC E' && upgradedBgWta125?.nti === 'RC G',
+            'Runtime v3 must replace the rejected v2 Betgenius WTA 125 main mapping with E/E/G',
+          );
+          '''
+          p = Path(round_test)
+          text = p.read_text(encoding='utf-8')
+          if text.count(insertion_point) != 1:
+              raise SystemExit('Could not locate provider test insertion point exactly once')
+          p.write_text(text.replace(insertion_point, insertion_point + upgrade_block), encoding='utf-8')
+          PY
+
+          node --check functions/lib/provider-tennis-rules.js
+          node --check tests/event-id-global-smoke.mjs
+          node --check tests/provider-tennis-round-smoke.mjs
+          node tests/routing-smoke.mjs
+          node tests/event-id-global-smoke.mjs
+          node tests/event-id-analyze-smoke.mjs
+          node tests/provider-tennis-round-smoke.mjs
+          node tests/rules-manager-smoke.mjs
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add functions/lib/provider-tennis-rules.js tests/event-id-global-smoke.mjs tests/provider-tennis-round-smoke.mjs
+          git commit -m "Correct Betgenius main Challenger and WTA 125 matrix"
+          git push origin HEAD:fix/provider-tennis-matrix-v8
