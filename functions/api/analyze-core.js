@@ -8,7 +8,6 @@ import {
 } from '../lib/provider-config.js';
 import { effortFor, loadReasoningConfig } from '../lib/reasoning-config.js';
 import { callAiJson } from '../lib/ai-client.js';
-import { PROVIDER_TENNIS_RULES_PROMPT } from '../lib/provider-tennis-rules.js';
 import { enforceResultPolicy } from '../lib/result-policy.js';
 import {
   decorateInputRows,
@@ -53,7 +52,7 @@ const CLASSIFIER_SCHEMA = {
         additionalProperties: false,
         required: [
           'inputIndex', 'sport', 'competition', 'global', 'dazn', 'quinnbet', 'nti', 'basis',
-          'confidence', 'sources', 'manualCheck', 'needsEscalation', 'escalationReason'
+          'confidence', 'sources', 'manualCheck', 'manualCheckType', 'manualCheckReason', 'needsEscalation', 'escalationReason'
         ],
         properties: {
           inputIndex: { type: 'integer' },
@@ -67,6 +66,8 @@ const CLASSIFIER_SCHEMA = {
           confidence: { type: 'string', enum: ['High', 'Medium', 'Low'] },
           sources: { type: 'array', items: { type: 'string' } },
           manualCheck: { type: 'boolean' },
+          manualCheckType: { type: 'string' },
+          manualCheckReason: { type: 'string' },
           needsEscalation: { type: 'boolean' },
           escalationReason: { type: 'string' },
         },
@@ -146,7 +147,7 @@ export async function onRequestPost(context) {
   for (const row of rows) {
     const deterministic = classifyDeterministic(row, runtimeIndex);
     if (deterministic) {
-      finalByIndex.set(row.inputIndex, enforceResultPolicy({ ...deterministic, inputIndex: row.inputIndex }, row));
+      finalByIndex.set(row.inputIndex, enforceResultPolicy({ ...deterministic, inputIndex: row.inputIndex }, row, rulesPayload.resultPolicies));
       deterministicCount += 1;
     } else {
       unresolved.push(row);
@@ -173,7 +174,7 @@ export async function onRequestPost(context) {
     appendClassifierWarnings(warnings, primary.result.warnings);
 
     const latest = new Map();
-    for (const result of primary.result.rows || []) latest.set(result.inputIndex, enforceResultPolicy(result));
+    for (const result of primary.result.rows || []) latest.set(result.inputIndex, enforceResultPolicy(result, result, rulesPayload.resultPolicies));
     let pending = unresolved.filter((input) => latest.get(input.inputIndex)?.needsEscalation);
 
     if (pending.length && route.research) {
@@ -192,7 +193,7 @@ export async function onRequestPost(context) {
         if (research.ok) {
           researchCount = pending.length;
           appendClassifierWarnings(warnings, research.result.warnings);
-          for (const result of research.result.rows || []) latest.set(result.inputIndex, enforceResultPolicy(result));
+          for (const result of research.result.rows || []) latest.set(result.inputIndex, enforceResultPolicy(result, result, rulesPayload.resultPolicies));
           pending = pending.filter((input) => latest.get(input.inputIndex)?.needsEscalation);
         } else {
           warnings.push(`Research provider failed; previous results retained. ${research.error}`);
@@ -218,7 +219,7 @@ export async function onRequestPost(context) {
         if (escalation.ok) {
           escalatedCount = pending.length;
           appendClassifierWarnings(warnings, escalation.result.warnings);
-          for (const result of escalation.result.rows || []) latest.set(result.inputIndex, enforceResultPolicy(result));
+          for (const result of escalation.result.rows || []) latest.set(result.inputIndex, enforceResultPolicy(result, result, rulesPayload.resultPolicies));
           pending = [];
         } else {
           warnings.push(`Escalation provider failed; previous results retained. ${escalation.error}`);
@@ -236,7 +237,7 @@ export async function onRequestPost(context) {
 
   const finalRows = rows.map((input) => {
     const result = finalByIndex.get(input.inputIndex);
-    if (result) return stripInternal(result, input);
+    if (result) return stripInternal(result, input, rulesPayload.resultPolicies);
     return {
       sport: input.sport,
       competition: input.competition,
@@ -248,6 +249,7 @@ export async function onRequestPost(context) {
       confidence: 'Low',
       sources: ['Risk Class guide'],
       manualCheck: true,
+      manualCheckType: 'Yes',
       manualCheckReason: 'No classification result returned.',
     };
   });
@@ -343,22 +345,36 @@ async function classifyWithProfile({ env, providerConfig, profile, rows, rules, 
     schema: CLASSIFIER_SCHEMA,
     schemaName: 'risk_class_analysis',
     useWeb: true,
-    promptCacheKey: `riskclasses-round-v2-${rules.version || 'rules'}-${providerConfig.version || 'providers'}-${profile.id}-classifier`,
+    promptCacheKey: `riskclasses-json-authority-v3-${rules.version || 'rules'}-${providerConfig.version || 'providers'}-${profile.id}-classifier`,
   });
   if (result.telemetry) telemetryCalls.push(result.telemetry);
   return result;
 }
 
 function buildDeveloperPrompt(rules, { webAvailable }) {
+  const structuredRules = JSON.stringify({
+    deterministicRules: rules.deterministicRules || {},
+    resultPolicies: Array.isArray(rules.resultPolicies) ? rules.resultPolicies : [],
+    resultTransforms: Array.isArray(rules.resultTransforms) ? rules.resultTransforms : [],
+  });
   const researchContract = webAvailable
-    ? 'A web-search tool is available in this stage. Use it only when current facts such as tournament tier, tour, division, qualifier status, participant level or esports tier are genuinely needed. Do not browse merely to confirm an exact rule.'
-    : 'No web-search tool is available in this stage. If the answer materially depends on a current external fact that is not established by the canonical rules, make the best cautious answer you can and set needsEscalation=true so a research-capable or stronger configured provider can review it.';
-  return `${rules.instructions}\n\n--- CANONICAL KNOWLEDGE SOURCE ---\n${rules.knowledge}\n\n--- WEBSITE ROUTING CONTRACT (HARD) ---\nThe canonical instructions and knowledge above remain the authority. These rows were not resolved by the deterministic exact-rule layer, so classify them with the same approved behavior. Return only structured output. Keep inputIndex unchanged and preserve sport/competition text exactly. Competition ID is provider context: IDs starting BG are Betgenius, IDs starting DB are Databet, and IDs starting U are Betradar. Always return a Global/base field plus DAZN, Quinnbet and NTI. The Global field must be an exact RC A-I value, 'RC X rec.' only when the Global classification itself is a genuine analogy, or an empty string only when the canonical rules genuinely provide no Global value. Global is the default for every brand that has no explicit brand-specific override: a blank or Same as Global brand value MUST inherit the Global value exactly. Do not add a rec. marker, missing-rule warning or manual check solely because the brand override is absent. If Global itself is 'RC X rec.' because the base classification is a genuine analogy, every unspecified brand inherits that same 'RC X rec.' recommendation. Only use Manual check / missing rule when neither a Global value nor a brand-specific value can be established. Confidence is confidence in the FINAL three-brand answer: High normally means manualCheck false; Medium/Low mean manualCheck true; any value containing 'rec.' cannot be High; any 'Manual check / missing rule' forces Low. Special round-review exception: for Tennis or Snooker, when the input does not state a round/stage, keep High when the three-brand class is otherwise confirmed, set manualCheck=true, and explicitly state 'Stage/round not provided — High confidence retained; stage check required.' Generic Qualification/Qualifying/Qualifier wording identifies a qualifying category but does not state the exact round; only Q1-Q4 or another actual round/stage removes this review. Tennis SRL/Simulated Reality and outright/winner markets are excluded. Do not lower confidence solely because the round is absent. Apply exact/operational rules before analogy. ${PROVIDER_TENNIS_RULES_PROMPT} If the event category is not explicit, use the official ATP Tour or WTA tournament calendar/page to verify the listed level or points; do not infer it from the event name alone. ${researchContract} Never invent brand overrides. Tennis Virtuals/SRL/Simulated Reality are RC H for all three while the not-offered exception is active. Set needsEscalation=true ONLY when the competition/base classification remains materially uncertain and another configured research/quality model could plausibly change the answer. Do NOT escalate merely because a brand uses inherited Global or because a Stage check is required only for a missing Tennis/Snooker round.`;
+    ? 'A web-search tool is available in this stage. Use it only when current facts such as tournament tier, tour, division, qualifier status, participant level or esports tier are genuinely needed. Prefer official governing bodies, leagues, tours, federations or organizers. Do not browse merely to confirm an exact managed rule.'
+    : 'No web-search tool is available in this stage. If the answer materially depends on a current external fact that is not established by the canonical managed rules, make the best cautious answer you can and set needsEscalation=true so a research-capable or stronger configured provider can review it.';
+  return `${rules.instructions}
+
+--- CANONICAL KNOWLEDGE SOURCE ---
+${rules.knowledge}
+
+--- MANAGED STRUCTURED RULES AND POLICIES ---
+${structuredRules}
+
+--- WEBSITE ROUTING CONTRACT (HARD) ---
+The managed JSON above is the sole sportsbook rule authority. These rows were not resolved by deterministicRules.rules from that JSON, so classify them using the same managed instructions and knowledge. Application code does not supply provider-specific Tennis classes, SRL classes, round/stage exceptions, sport matrices, or other fallback RC mappings. Return only structured output. Keep inputIndex unchanged and preserve sport/competition text exactly. Competition ID is provider context only: IDs starting BG are Betgenius, IDs starting DB are Databet, and IDs starting U are Betradar. Always return Global/base plus DAZN, Quinnbet and NTI. A blank or Same as Global brand value inherits the resolved Global value exactly; do not create a missing-rule warning solely because a brand override is absent. Only use Manual check / missing rule when neither managed Global nor a managed brand-specific value can be established. Follow every review label, Stage rule, confidence exception, operational exception, outright adjustment and brand mapping exactly as defined in the managed JSON. ${researchContract} Never invent brand overrides. Set needsEscalation=true only when material classification uncertainty remains after applying the managed JSON.`;
 }
 
 
-function stripInternal(row, input) {
-  const final = enforceResultPolicy(row, input);
+function stripInternal(row, input, policies = []) {
+  const final = enforceResultPolicy(row, input, policies);
   return {
     sport: input.sport,
     competition: input.competition,
@@ -370,6 +386,7 @@ function stripInternal(row, input) {
     confidence: final.confidence,
     sources: Array.isArray(final.sources) ? final.sources : [],
     manualCheck: Boolean(final.manualCheck),
+    manualCheckType: final.manualCheckType || (final.manualCheck ? 'Yes' : 'No'),
     manualCheckReason: final.manualCheckReason || '',
   };
 }
