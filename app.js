@@ -191,7 +191,7 @@ function normalizeResultRow(row) {
   else if (hasRec && finalConfidence === 'High') finalConfidence = 'Medium';
   const manualCheck = finalConfidence !== 'High' || hasRec || hasMissing || Boolean(manualCheckReason);
 
-  return { ...row, confidence: finalConfidence, manualCheck, manualCheckReason };
+  return { ...row, confidence: finalConfidence, manualCheck, manualCheckReason, manualCheckType: manualCheckReason ? 'Stage' : (manualCheck ? 'Yes' : 'No') };
 }
 
 function sourceChips(sources) {
@@ -218,8 +218,7 @@ function renderResults(payload) {
       <td>${escapeHtml(row.basis)}</td>
       <td><span class="confidence-pill ${confClass}">${escapeHtml(row.confidence)}</span></td>
       <td>${sourceChips(row.sources)}</td>
-      <td><span class="manual-pill ${row.manualCheck ? 'yes' : 'no'}">${row.manualCheck ? 'Yes' : 'No'}</span></td>
-      <td>${escapeHtml(row.manualCheckReason || '—')}</td>
+      <td><span class="manual-pill ${row.manualCheckType === 'Stage' ? 'stage' : (row.manualCheck ? 'yes' : 'no')}" title="${escapeHtml(row.manualCheckReason || '')}">${escapeHtml(row.manualCheckType)}</span></td>
     `;
     els.resultsBody.appendChild(tr);
   }
@@ -290,7 +289,7 @@ els.analyzeBtn.addEventListener('click', analyze);
 
 function tsv() {
   const rows = [['Sport','Competition','Competition ID','DAZN','Quinnbet','NTI','Basis','Confidence','Sources','Manual check','Manual check reason']];
-  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheck?'Yes':'No',r.manualCheckReason||'']);
+  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheckType,r.manualCheckReason||'']);
   return rows.map((row) => row.map((cell) => String(cell ?? '').replace(/\t/g,' ').replace(/\r?\n/g,' ')).join('\t')).join('\n');
 }
 
@@ -307,7 +306,7 @@ function csvEscape(value) {
 }
 els.csvBtn.addEventListener('click', () => {
   const rows = [['Sport','Competition','Competition ID','DAZN','Quinnbet','NTI','Basis','Confidence','Sources','Manual check','Manual check reason']];
-  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheck?'Yes':'No',r.manualCheckReason||'']);
+  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheckType,r.manualCheckReason||'']);
   const blob = new Blob([rows.map((row) => row.map(csvEscape).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
