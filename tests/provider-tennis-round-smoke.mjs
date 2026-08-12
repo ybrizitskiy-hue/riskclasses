@@ -33,7 +33,7 @@ const staleRules = {
 
 const index = buildRuntimeIndex({ deterministicRules: staleRules });
 const required = requiredProviderTennisRules();
-assert(PROVIDER_TENNIS_RULES_VERSION === 2, 'Provider Tennis rules marker changed unexpectedly');
+assert(PROVIDER_TENNIS_RULES_VERSION === 3, 'Provider Tennis rules marker changed unexpectedly');
 assert(required.length === 16, 'Exactly 16 hard provider Tennis mappings must exist');
 
 const managedAuthorityRules = {
@@ -48,6 +48,37 @@ const managedAuthority = classifyDeterministic(
   buildRuntimeIndex({ deterministicRules: managedAuthorityRules }),
 );
 assert(managedAuthority?.dazn === 'RC F' && managedAuthority?.nti === 'RC F', 'Published marker must return authority to managed Rules Manager data');
+
+
+// Version 2 contained the rejected G/G/G interpretation for Betgenius main
+// Challenger and WTA 125. Version 3 must replace those same-ID managed rows
+// at runtime so the corrected E/E/G matrix is effective before KV v8 is published.
+const staleVersionTwoRules = {
+  ...staleRules,
+  providerTennisRulesVersion: 2,
+  rules: required.map((item) => {
+    if (item.id === 'tennis-bg-challenger-singles' || item.id === 'tennis-bg-wta125-singles') {
+      return { ...item, dazn: 'RC G', quinnbet: 'RC G', nti: 'RC G', basis: 'Rejected v2 G/G/G interpretation' };
+    }
+    return item;
+  }),
+};
+const upgradedBgChallenger = classifyDeterministic(
+  { sport: 'Tennis', competition: 'ATP Challenger Version Two Example', competitionId: 'BG-778' },
+  buildRuntimeIndex({ deterministicRules: staleVersionTwoRules }),
+);
+assert(
+  upgradedBgChallenger?.dazn === 'RC E' && upgradedBgChallenger?.quinnbet === 'RC E' && upgradedBgChallenger?.nti === 'RC G',
+  'Runtime v3 must replace the rejected v2 Betgenius Challenger main mapping with E/E/G',
+);
+const upgradedBgWta125 = classifyDeterministic(
+  { sport: 'Tennis', competition: 'WTA 125 Version Two Example', competitionId: 'BG-779' },
+  buildRuntimeIndex({ deterministicRules: staleVersionTwoRules }),
+);
+assert(
+  upgradedBgWta125?.dazn === 'RC E' && upgradedBgWta125?.quinnbet === 'RC E' && upgradedBgWta125?.nti === 'RC G',
+  'Runtime v3 must replace the rejected v2 Betgenius WTA 125 main mapping with E/E/G',
+);
 
 const screenshotCases = [
   ['BG-25755', 'ATP Brisbane 3 Challenger Qualification - Australia', 'RC G', 'RC F', 'RC G'],
@@ -75,12 +106,12 @@ for (const [competitionId, competition, dazn, quinnbet, nti] of screenshotCases)
 const providerCases = [
   ['U-1', 'ATP Challenger Example', 'RC G', 'RC F', 'RC G'],
   ['BG-1', 'ATP Challenger Example Qualification', 'RC G', 'RC F', 'RC G'],
-  ['BG-2', 'ATP Challenger Example', 'RC G', 'RC G', 'RC G'],
+  ['BG-2', 'ATP Challenger Example', 'RC E', 'RC E', 'RC G'],
   ['DB-1', 'ATP Challenger Example', 'RC G', 'RC F', 'RC G'],
 
   ['U-2', 'WTA 125 Example', 'RC G', 'RC F', 'RC G'],
   ['BG-3', 'WTA 125 Example Q4', 'RC G', 'RC F', 'RC G'],
-  ['BG-4', 'WTA 125 Example', 'RC G', 'RC G', 'RC G'],
+  ['BG-4', 'WTA 125 Example', 'RC E', 'RC E', 'RC G'],
   ['DB-2', 'WTA 125 Example', 'RC G', 'RC F', 'RC G'],
 
   ['U-3', 'ATP 250 Example', 'RC E', 'RC E', 'RC G'],

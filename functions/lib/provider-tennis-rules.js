@@ -7,17 +7,17 @@ const TOUR_500_PLUS = '\\b(?:atp|wta)\\s*(?:500|1000)\\b|\\bmasters?\\s*1000\\b|
 const NON_STANDARD_SINGLES = '\\b(juniors?|boys?|girls?|wheelchair)\\b';
 const OPERATIONAL_EXCLUSIONS = '\\b(srl|simulated reality|virtuals?|simulated|utr)\\b';
 
-export const PROVIDER_TENNIS_RULES_VERSION = 2;
+export const PROVIDER_TENNIS_RULES_VERSION = 3;
 
 const REQUIRED_RULES = [
   providerRule('tennis-br-challenger-singles', 'Betradar', [CHALLENGER], [DOUBLES, NON_STANDARD_SINGLES], 'RC G', 'RC F', 'RC G', 'Betradar Challenger Singles; Global G, Quinnbet F, NTI G'),
   providerRule('tennis-bg-challenger-qual-singles', 'Betgenius', [CHALLENGER, QUALIFICATION], [DOUBLES, NON_STANDARD_SINGLES], 'RC G', 'RC F', 'RC G', 'Betgenius Challenger Qual Singles; Global G, Quinnbet F, NTI G'),
-  providerRule('tennis-bg-challenger-singles', 'Betgenius', [CHALLENGER], [QUALIFICATION, DOUBLES, NON_STANDARD_SINGLES], 'RC G', 'RC G', 'RC G', 'Betgenius Challenger Singles; Global G, NTI G'),
+  providerRule('tennis-bg-challenger-singles', 'Betgenius', [CHALLENGER], [QUALIFICATION, DOUBLES, NON_STANDARD_SINGLES], 'RC E', 'RC E', 'RC G', 'Betgenius Challenger Singles; Global E, NTI G'),
   providerRule('tennis-db-challenger-singles', 'Databet', [CHALLENGER], [DOUBLES, NON_STANDARD_SINGLES], 'RC G', 'RC F', 'RC G', 'Databet Challenger Singles; Global G, Quinnbet F, NTI G'),
 
   providerRule('tennis-br-wta125-singles', 'Betradar', [WTA_125], [DOUBLES, NON_STANDARD_SINGLES], 'RC G', 'RC F', 'RC G', 'Betradar WTA 125 Singles; Global G, Quinnbet F, NTI G'),
   providerRule('tennis-bg-wta125-qual-singles', 'Betgenius', [WTA_125, QUALIFICATION], [DOUBLES, NON_STANDARD_SINGLES], 'RC G', 'RC F', 'RC G', 'Betgenius WTA 125 Qual Singles; Global G, Quinnbet F, NTI G'),
-  providerRule('tennis-bg-wta125-singles', 'Betgenius', [WTA_125], [QUALIFICATION, DOUBLES, NON_STANDARD_SINGLES], 'RC G', 'RC G', 'RC G', 'Betgenius WTA 125 Singles; Global G, NTI G'),
+  providerRule('tennis-bg-wta125-singles', 'Betgenius', [WTA_125], [QUALIFICATION, DOUBLES, NON_STANDARD_SINGLES], 'RC E', 'RC E', 'RC G', 'Betgenius WTA 125 Singles; Global E, NTI G'),
   providerRule('tennis-db-wta125-singles', 'Databet', [WTA_125], [DOUBLES, NON_STANDARD_SINGLES], 'RC G', 'RC F', 'RC G', 'Databet WTA 125 Singles; Global G, Quinnbet F, NTI G'),
 
   providerRule('tennis-br-250-singles', 'Betradar', [TOUR_250], [DOUBLES, NON_STANDARD_SINGLES], 'RC E', 'RC E', 'RC G', 'Betradar ATP/WTA 250 Singles; Global E, NTI G'),
@@ -37,13 +37,13 @@ Competition ID identifies the provider: U... = Betradar, BG... = Betgenius, DB..
 Challenger Singles:
 - Betradar: Global RC G; Quinnbet RC F; NTI RC G. Therefore DAZN/QB/NTI = G/F/G. Never apply Betgenius main-draw RC E to a Betradar Challenger.
 - Betgenius qualification/qualifying/quals/Q1-Q4: Global RC G; Quinnbet RC F; NTI RC G. Therefore G/F/G.
-- Betgenius main draw/non-qualification: Global RC G; NTI RC G. Therefore G/G/G.
+- Betgenius main draw/non-qualification: Global RC E; NTI RC G. Therefore E/E/G.
 - Databet: Global RC G; Quinnbet RC F; NTI RC G. Therefore G/F/G.
 
 WTA 125 Singles:
 - Betradar: Global RC G; Quinnbet RC F; NTI RC G. Therefore G/F/G.
 - Betgenius qualification/qualifying/quals/Q1-Q4: Global RC G; Quinnbet RC F; NTI RC G. Therefore G/F/G.
-- Betgenius main draw/non-qualification: Global RC G; NTI RC G. Therefore G/G/G.
+- Betgenius main draw/non-qualification: Global RC E; NTI RC G. Therefore E/E/G.
 - Databet: Global RC G; Quinnbet RC F; NTI RC G. Therefore G/F/G.
 
 ATP/WTA 250 Singles:
