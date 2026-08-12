@@ -1,6 +1,6 @@
 import { resolveGlobalBrands } from './input-contract.js';
 
-export const ROUND_REVIEW_REASON = 'Round/stage not provided — High confidence retained; manual check required for the applicable round.';
+export const ROUND_REVIEW_REASON = 'Stage/round not provided — High confidence retained; stage check required.';
 
 const ROUND_CONTEXT_PATTERNS = [
   /\bq[1-4]\b/i,
@@ -34,7 +34,6 @@ export function enforceResultPolicy(row, input = row) {
   if (roundReview) {
     manualCheck = true;
     manualCheckReason = appendReason(manualCheckReason, ROUND_REVIEW_REASON);
-    basis = appendReason(basis, ROUND_REVIEW_REASON);
   }
 
   return {
