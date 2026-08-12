@@ -41,6 +41,11 @@ jobs:
           p=Path('tests/event-id-global-smoke.mjs')
           s=p.read_text().replace('Missing Tennis/Snooker exact round = High + manual check with reason','Missing Tennis/Snooker exact round = High + Stage check')
           p.write_text(s)
+
+          p=Path('tests/event-id-analyze-smoke.mjs')
+          s=p.read_text()
+          s=s.replace("assert(data.rows[0].manualCheckReason === ROUND_REVIEW_REASON && data.rows[0].basis.includes(ROUND_REVIEW_REASON), 'Provider result must explicitly state the round review');", "assert(data.rows[0].manualCheckReason === ROUND_REVIEW_REASON && !data.rows[0].basis.includes(ROUND_REVIEW_REASON), 'Provider result must carry the Stage reason without duplicating it into Basis');")
+          p.write_text(s)
           PY
       - name: Syntax and regressions
         run: |
@@ -65,6 +70,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add functions/api/analyze-core.js tests/provider-tennis-round-smoke.mjs tests/event-id-global-smoke.mjs
+          git add functions/api/analyze-core.js tests/provider-tennis-round-smoke.mjs tests/event-id-global-smoke.mjs tests/event-id-analyze-smoke.mjs
           git commit -m "Align Stage review tests and prompt"
           git push origin HEAD:fix/compact-results-stage-review
