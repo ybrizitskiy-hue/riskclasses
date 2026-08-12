@@ -216,11 +216,11 @@ function renderResults(payload) {
       <td>${escapeHtml(row.competition)}</td>
       <td>${escapeHtml(row.competitionId)}</td>
       <td>${escapeHtml(row.dazn)}</td>
-      <td>${escapeHtml(row.quinnbet)|</td>
+      <td>${escapeHtml(row.quinnbet)}</td>
       <td>${escapeHtml(row.nti)}</td>
-      <td>${escapeHtml(row.basis)|</td>
+      <td>${escapeHtml(row.basis)}</td>
       <td><span class="confidence-pill ${confClass}">${escapeHtml(row.confidence)}</span></td>
-      <td>${sourceChips(row.sources)|</td>
+      <td>${sourceChips(row.sources)}</td>
       <td><span class="manual-pill ${row.manualCheckType === 'Stage' ? 'stage' : (row.manualCheck ? 'yes' : 'no')}" title="${escapeHtml(row.manualCheckReason || '')}">${escapeHtml(row.manualCheckType)}</span></td>
     `;
     els.resultsBody.appendChild(tr);
