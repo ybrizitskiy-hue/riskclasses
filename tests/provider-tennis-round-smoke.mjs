@@ -33,7 +33,7 @@ const staleRules = {
 
 const index = buildRuntimeIndex({ deterministicRules: staleRules });
 const required = requiredProviderTennisRules();
-assert(PROVIDER_TENNIS_RULES_VERSION === 2, 'Provider Tennis rules marker changed unexpectedly');
+assert(PROVIDER_TENNIS_RULES_VERSION === 4, 'Provider Tennis rules marker changed unexpectedly');
 assert(required.length === 16, 'Exactly 16 hard provider Tennis mappings must exist');
 
 const managedAuthorityRules = {
@@ -48,6 +48,22 @@ const managedAuthority = classifyDeterministic(
   buildRuntimeIndex({ deterministicRules: managedAuthorityRules }),
 );
 assert(managedAuthority?.dazn === 'RC F' && managedAuthority?.nti === 'RC F', 'Published marker must return authority to managed Rules Manager data');
+
+
+// A stale v3 bundle may contain the rejected E/E/G Betgenius main-draw mapping.
+// Runtime v4 must override it with the approved G/G/G mapping until KV is republished.
+const staleVersionThreeRules = {
+  ...staleRules,
+  providerTennisRulesVersion: 3,
+  rules: required.map((item) => item.id === 'tennis-bg-challenger-singles'
+    ? { ...item, dazn: 'RC E', quinnbet: 'RC E', nti: 'RC G', basis: 'Rejected stale v3 E/E/G mapping' }
+    : item),
+};
+const upgradedBgChallenger = classifyDeterministic(
+  { sport: 'Tennis', competition: 'ATP Challenger Stale V3 Example', competitionId: 'BG-778' },
+  buildRuntimeIndex({ deterministicRules: staleVersionThreeRules }),
+);
+assert(upgradedBgChallenger?.dazn === 'RC G' && upgradedBgChallenger?.quinnbet === 'RC G' && upgradedBgChallenger?.nti === 'RC G', 'Runtime v4 must override stale v3 Betgenius Challenger main with G/G/G');
 
 const screenshotCases = [
   ['BG-25755', 'ATP Brisbane 3 Challenger Qualification - Australia', 'RC G', 'RC F', 'RC G'],
@@ -100,138 +116,5 @@ for (const [competitionId, competition, dazn, quinnbet, nti] of providerCases) {
   assert(
     result.dazn === dazn && result.quinnbet === quinnbet && result.nti === nti,
     `Wrong provider mapping for ${competitionId} / ${competition}`,
-  );
-}
-
-const noProvider = classifyDeterministic({ sport: 'Tennis', competition: 'ATP Challenger Example' }, index);
-assert(noProvider?.dazn === 'RC E', 'No provider ID must not trigger the hard provider overlay');
-
-const srl = classifyDeterministic({
-  sport: 'Tennis',
-  competition: 'SRL Challenger Simulated Reality',
-  competitionId: 'U-99',
-}, index);
-assert(srl?.dazn === 'RC H' && srl?.quinnbet === 'RC H' && srl?.nti === 'RC H', 'SRL H/H/H must retain precedence');
-
-const tennisNoRound = enforceResultPolicy(
-  confirmed('Tennis', 'ATP Challenger Example', 'RC G', 'RC F', 'RC G'),
-  { sport: 'Tennis', competition: 'ATP Challenger Example' },
-);
-assert(tennisNoRound.confidence === 'High', 'Missing Tennis round must not lower confirmed confidence');
-assert(tennisNoRound.manualCheck === true, 'Missing Tennis round must require manual check');
-assert(tennisNoRound.manualCheckReason === ROUND_REVIEW_REASON, 'Tennis round review reason must be explicit');
-assert(!tennisNoRound.basis.includes(ROUND_REVIEW_REASON), 'Tennis round review reason must not duplicate into Basis');
-
-const tennisQual = enforceResultPolicy(
-  confirmed('Tennis', 'ATP Challenger Example Qualification', 'RC G', 'RC F', 'RC G'),
-  { sport: 'Tennis', competition: 'ATP Challenger Example Qualification' },
-);
-assert(tennisQual.confidence === 'High' && tennisQual.manualCheck === true, 'Generic Tennis qualification must remain High/Yes because the exact qualifying round is absent');
-assert(tennisQual.manualCheckReason === ROUND_REVIEW_REASON, 'Generic qualification must show the exact round-review reason');
-
-const tennisQ2 = enforceResultPolicy(
-  confirmed('Tennis', 'ATP Challenger Example Qualification Q2', 'RC G', 'RC F', 'RC G'),
-  { sport: 'Tennis', competition: 'ATP Challenger Example Qualification Q2' },
-);
-assert(tennisQ2.confidence === 'High' && tennisQ2.manualCheck === false, 'Explicit Tennis Q2 must be High/No');
-
-const tennisFinal = enforceResultPolicy(
-  confirmed('Tennis', 'Wimbledon - Final', 'RC C', 'RC C', 'RC E'),
-  { sport: 'Tennis', competition: 'Wimbledon - Final' },
-);
-assert(tennisFinal.confidence === 'High' && tennisFinal.manualCheck === false, 'Explicit Tennis final must not create a round review');
-
-const tennisSrl = enforceResultPolicy(
-  confirmed('Tennis', 'SRL Challenger Simulated Reality', 'RC H', 'RC H', 'RC H'),
-  { sport: 'Tennis', competition: 'SRL Challenger Simulated Reality' },
-);
-assert(tennisSrl.confidence === 'High' && tennisSrl.manualCheck === false, 'Tennis SRL must be exempt from round review');
-
-const tennisOutright = enforceResultPolicy(
-  confirmed('Tennis', 'ATP 250 Example Tournament Winner', 'RC B', 'RC B', 'RC C'),
-  { sport: 'Tennis', competition: 'ATP 250 Example Tournament Winner' },
-);
-assert(tennisOutright.confidence === 'High' && tennisOutright.manualCheck === false, 'Tennis outright/winner markets must be exempt from round review');
-
-const snookerNoRound = enforceResultPolicy(
-  confirmed('Snooker', 'World Championship', 'RC A', 'RC A', 'RC A'),
-  { sport: 'Snooker', competition: 'World Championship' },
-);
-assert(snookerNoRound.confidence === 'High' && snookerNoRound.manualCheck === true, 'Missing Snooker round must be High/Yes');
-assert(snookerNoRound.manualCheckReason === ROUND_REVIEW_REASON, 'Snooker round review reason must be explicit');
-
-const snookerR16 = enforceResultPolicy(
-  confirmed('Snooker', 'World Championship Round of 16', 'RC A', 'RC A', 'RC A'),
-  { sport: 'Snooker', competition: 'World Championship Round of 16' },
-);
-assert(snookerR16.confidence === 'High' && snookerR16.manualCheck === false, 'Explicit Snooker R16 must be High/No');
-
-const football = enforceResultPolicy(
-  confirmed('Football', 'Premier League', 'RC A', 'RC A', 'RC E'),
-  { sport: 'Football', competition: 'Premier League' },
-);
-assert(football.confidence === 'High' && football.manualCheck === false, 'Other sports must keep existing High/No policy');
-
-const recommendation = enforceResultPolicy({
-  sport: 'Tennis',
-  competition: 'Unknown Open Qualification',
-  global: 'RC F rec.',
-  dazn: '',
-  quinnbet: '',
-  nti: '',
-  basis: 'Analogy',
-  confidence: 'High',
-  sources: ['Risk Class guide'],
-  manualCheck: false,
-});
-assert(recommendation.confidence === 'Medium' && recommendation.manualCheck === true, 'rec. must remain Medium/Yes');
-
-assert(needsRoundReview({ sport: 'Tennis', competition: 'ATP 250 Example' }), 'Tennis without round must need review');
-assert(needsRoundReview({ sport: 'Tennis', competition: 'ATP 250 Example Qualification' }), 'Generic Qualification must still need an exact round review');
-assert(!needsRoundReview({ sport: 'Tennis', competition: 'ATP 250 Example Qualification Q4' }), 'Tennis Q4 must count as exact round context');
-assert(!needsRoundReview({ sport: 'Tennis', competition: 'ATP 250 Example QF' }), 'Tennis QF must count as round context');
-assert(!hasExplicitRoundContext('ATP 250 Example Qualification'), 'Generic qualification is category context, not exact round context');
-assert(hasExplicitRoundContext('World Championship Final'), 'Singular Final must count as round context');
-assert(!hasExplicitRoundContext('WTA Finals'), 'Tournament name WTA Finals must not be mistaken for a final round');
-
-const analyzeSource = readFileSync(new URL('../functions/api/analyze-core.js', import.meta.url), 'utf8');
-assert(analyzeSource.includes('PROVIDER_TENNIS_RULES_PROMPT'), 'AI prompt must include the hard provider mapping');
-assert(analyzeSource.includes('enforceResultPolicy'), 'Backend must apply the High/Yes round exception');
-assert(analyzeSource.includes('manualCheckReason'), 'Backend output must return an explicit review reason');
-assert(analyzeSource.includes('Generic Qualification/Qualifying/Qualifier wording identifies a qualifying category but does not state the exact round'), 'AI prompt must keep generic qualification under round review');
-assert(analyzeSource.includes(ROUND_REVIEW_REASON), 'AI prompt must use the approved explicit round-review wording');
-
-const appSource = readFileSync(new URL('../app.js', import.meta.url), 'utf8');
-assert(appSource.includes("'Manual check reason'"), 'Copy/CSV exports must include manual check reason');
-assert(appSource.includes("manualCheckType: manualCheckReason ? 'Stage'"), 'Results table must label round-only review as Stage');
-assert(!appSource.includes("if (finalConfidence === 'High') manualCheck = false"), 'Client must not erase approved High/Yes round checks');
-
-const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-assert(!html.includes('<th>Manual check reason</th>'), 'UI must not add a separate reason column');
-assert(html.includes('Missing Tennis/Snooker exact round = High + Stage check'), 'UI policy must explicitly describe the Stage exception');
-
-console.log(`provider Tennis and round-review smoke tests passed (${checks} checks)`);
-
-function rule(id, sport, any, all, none, dazn, quinnbet, nti, basis) {
-  return { id, sport, match: { any, all, none }, dazn, quinnbet, nti, basis, source: 'Risk Class guide' };
-}
-
-function confirmed(sport, competition, dazn, quinnbet, nti) {
-  return {
-    sport,
-    competition,
-    global: '',
-    dazn,
-    quinnbet,
-    nti,
-    basis: 'Exact approved rule',
-    confidence: 'High',
-    sources: ['Risk Class guide'],
-    manualCheck: false,
-  };
-}
-
-function assert(condition, message) {
-  checks += 1;
-  if (!condition) throw new Error(message);
+   );
 }

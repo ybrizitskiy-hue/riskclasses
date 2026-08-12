@@ -7,7 +7,7 @@ const TOUR_500_PLUS = '\\b(?:atp|wta)\\s*(?:500|1000)\\b|\\bmasters?\\s*1000\\b|
 const NON_STANDARD_SINGLES = '\\b(juniors?|boys?|girls?|wheelchair)\\b';
 const OPERATIONAL_EXCLUSIONS = '\\b(srl|simulated reality|virtuals?|simulated|utr)\\b';
 
-export const PROVIDER_TENNIS_RULES_VERSION = 2;
+export const PROVIDER_TENNIS_RULES_VERSION = 4;
 
 const REQUIRED_RULES = [
   providerRule('tennis-br-challenger-singles', 'Betradar', [CHALLENGER], [DOUBLES, NON_STANDARD_SINGLES], 'RC G', 'RC F', 'RC G', 'Betradar Challenger Singles; Global G, Quinnbet F, NTI G'),
