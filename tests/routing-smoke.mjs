@@ -22,7 +22,7 @@ const deterministicCases = [
   ['Golf','The Open Championship - Round 3','RC A','RC A','RC A'],
   ['Table Tennis','WTT Feeder Ulaanbaatar. Women Singles','RC D','RC D','RC D'],
   ['Badminton','Malaysia International, MS - International','RC D','RC D','RC D'],
-  ['MMA','Dana Whites Contender Series: Season 10 - UFC','RC D','RC D','RC D'],
+  ['MMA','Dana Whites Contender Series: Season 10 - UFC','RC E','RC E','RC E'],
   ['Football','Test League - Testland','RC I','RC I','RC I'],
 ];
 
