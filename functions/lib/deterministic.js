@@ -1,4 +1,5 @@
 import { providerFromCompetitionId } from './input-contract.js';
+import { mergeRequiredProviderTennisRules } from './provider-tennis-rules.js';
 
 const RC_ORDER = ['A','B','C','D','E','F','G','H','I'];
 
@@ -25,7 +26,9 @@ export function buildRuntimeIndex(source = '') {
   return {
     footballRcI,
     deterministicRules,
-    compiledRules: compileRules(deterministicRules?.rules),
+    compiledRules: compileRules(mergeRequiredProviderTennisRules(deterministicRules?.rules, {
+      rulesVersion: deterministicRules?.providerTennisRulesVersion,
+    })),
   };
 }
 
@@ -40,8 +43,8 @@ export function classifyDeterministic(row, index) {
     row?.competitionId ?? row?.eventId ?? row?.competitionID ?? row?.eventID ?? '',
   );
   const dataProvider = normalize(inferredProvider);
-  const config = index?.deterministicRules;
-  if (!config) return null;
+  const config = index?.deterministicRules || {};
+  if (!index?.compiledRules?.length && !config.footballRcI) return null;
 
   let result = null;
   const football = config.footballRcI;
