@@ -45,6 +45,7 @@ jobs:
           p=Path('tests/event-id-analyze-smoke.mjs')
           s=p.read_text()
           s=s.replace("assert(data.rows[0].manualCheckReason === ROUND_REVIEW_REASON && data.rows[0].basis.includes(ROUND_REVIEW_REASON), 'Provider result must explicitly state the round review');", "assert(data.rows[0].manualCheckReason === ROUND_REVIEW_REASON && !data.rows[0].basis.includes(ROUND_REVIEW_REASON), 'Provider result must carry the Stage reason without duplicating it into Basis');")
+          s=s.replace("assert(row.manualCheckReason === ROUND_REVIEW_REASON && row.basis.includes(ROUND_REVIEW_REASON), `Screenshot row ${expected[0]} must explicitly mention the missing exact round`);", "assert(row.manualCheckReason === ROUND_REVIEW_REASON && !row.basis.includes(ROUND_REVIEW_REASON), `Screenshot row ${expected[0]} must carry the Stage reason without duplicating it into Basis`);")
           p.write_text(s)
           PY
       - name: Syntax and regressions
