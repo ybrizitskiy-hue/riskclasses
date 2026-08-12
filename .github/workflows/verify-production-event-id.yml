@@ -1,0 +1,48 @@
+name: Verify production event ID deployment
+
+on:
+  push:
+    branches:
+      - feat/event-id-provider-tennis-global
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for Cloudflare Pages and verify merged UI
+        shell: bash
+        run: |
+          ok=0
+          for attempt in $(seq 1 36); do
+            code=$(curl -L -sS -o /tmp/riskclasses-live.html -w '%{http_code}' https://riskclasses.pages.dev/ || true)
+            if [ "$code" = "200" ] \
+              && grep -Fq 'Competition ID' /tmp/riskclasses-live.html \
+              && grep -Fq 'Global fills brands without an override' /tmp/riskclasses-live.html \
+              && grep -Fq 'U = Betradar' /tmp/riskclasses-live.html \
+              && grep -Fq 'BG = Betgenius' /tmp/riskclasses-live.html \
+              && grep -Fq 'DB = Databet' /tmp/riskclasses-live.html; then
+              ok=1
+              break
+            fi
+            echo "Attempt $attempt: HTTP $code; deployment markers not ready yet"
+            sleep 5
+          done
+          test "$ok" = "1"
+          echo 'Production UI markers verified.'
+          curl -L -sSf https://riskclasses.pages.dev/api/meta | tee /tmp/riskclasses-meta.json
+          grep -Fq '"ok":true' /tmp/riskclasses-meta.json
+          echo 'Production /api/meta verified.'
+      - name: Remove temporary verifier
+        if: success()
+        shell: bash
+        run: |
+          rm -f .github/workflows/verify-production-event-id.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/verify-production-event-id.yml
+          git commit -m 'Remove temporary production verifier'
+          git push origin HEAD:feat/event-id-provider-tennis-global
