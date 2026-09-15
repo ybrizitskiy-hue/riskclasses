@@ -1,5 +1,4 @@
-# Risk Class Analyst — DAZN / Quinnbet / NTI
-
+# Risk Class Analyst 
 Cloudflare Pages application for internal sportsbook risk-class classification. It accepts screenshots or pasted Sport + Competition rows and returns DAZN, Quinnbet and NTI results using the approved risk-class rules.
 
 ## Security design
