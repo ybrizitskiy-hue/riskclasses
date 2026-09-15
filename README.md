@@ -9,7 +9,7 @@ AI provider credentials are never stored in browser code, GitHub, the rules bund
 
 Routing administration, Rules Manager, AI Provider Manager and cost telemetry are protected by `RISK_ADMIN_PIN`. The admin endpoint issues an 8-hour `HttpOnly; Secure; SameSite=Strict` signed cookie. A dedicated `RISK_ADMIN_SIGNING_SECRET` is recommended so admin sessions are independent of whichever AI provider is active.
 
-Protect the production hostname with Cloudflare Access for RokkerX users as the outer access-control layer.
+Protect the production hostname with Cloudflare Access for RX users as the outer access-control layer.
 
 ## One managed rules source
 
@@ -43,7 +43,7 @@ Unlock **Admin** with the configured PIN and click **Manage rules**.
 6. Click **Publish globally**. New analyses use the new KV rules without a redeploy.
 7. Previous bundles are archived automatically; use **Rollback** to restore a snapshot.
 
-Rules Manager blocks malformed/truncated bundles, duplicate deterministic IDs, missing DAZN/QB/NTI values, invalid RC values/regexes, and changes that break the active Tennis SRL H/H/H operational override.
+Rules Manager blocks malformed/truncated bundles, duplicate deterministic IDs, missing brands values, invalid RC values/regexes, and changes that break the active Tennis SRL H/H/H operational override.
 
 Up to 20 previous rules snapshots are retained under `rules-history:*`, indexed by `rules-history-index-v1`.
 
@@ -129,7 +129,7 @@ The server enforces:
 - any `RC X rec.` cannot be High
 - any `Manual check / missing rule` forces Low
 
-Tennis Virtuals / SRL / Simulated Reality remain RC H for DAZN, Quinnbet and NTI while the not-offered operational exception is active.
+Tennis Virtuals / SRL / Simulated Reality remain RC H for the brands while the not-offered operational exception is active.
 
 ## Cloudflare Pages setup
 
