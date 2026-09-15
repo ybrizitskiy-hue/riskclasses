@@ -29,7 +29,7 @@ Protect the production hostname with Cloudflare Access for RX users as the outer
 }
 ```
 
-Older `custom-gpt-v2` values containing only `version`, `instructions` and `knowledge` are migrated automatically on first use. The deterministic engine contains matching mechanics only; its DAZN / Quinnbet / NTI values, patterns and basis text are read from the KV bundle.
+Older `custom-gpt-v2` values containing only `version`, `instructions` and `knowledge` are migrated automatically on first use. The deterministic engine contains matching mechanics only; its values, patterns and basis text are read from the KV bundle.
 
 ## Rules Manager
 
