@@ -3,6 +3,7 @@ import { createAdminSession } from '../functions/lib/admin.js';
 import {
   PROVIDER_CONFIG_KEY,
   defaultProviderConfig,
+  normalizeProviderConfig,
   validateProviderConfig,
 } from '../functions/lib/provider-config.js';
 import { callAiJson, profileEndpoint } from '../functions/lib/ai-client.js';
@@ -72,7 +73,7 @@ assert(!('store' in captured.body) && !('prompt_cache_key' in captured.body), 'D
 
 const chatProfile = {
   id:'custom-chat', label:'Custom Chat', transport:'cloudflare-provider', protocol:'chat-completions',
-  model:'alt-model', providerSlug:'custom-alt', baseUrl:'https://api.alt.test', pathPrefix:'v1', byokAlias:'default',
+  model:'alt-model', providerSlug:'custom-alt', baseUrl:'https://api.alt.test', pathPrefix:'v1', byokAlias:'default', sessionHeader:'x-opencode-session',
   capabilities:{ vision:true, jsonSchema:true, reasoning:false, webSearch:false, promptCache:false, store:false },
   pricing:{ input:null, cached:null, output:null, webSearch:null },
 };
@@ -94,8 +95,20 @@ result = await callAiJson({
 assert(result.ok, 'Custom Chat Completions request should parse');
 assert(captured.url === 'https://gateway.ai.cloudflare.com/v1/abc123account/riskclasses/custom-alt/v1/chat/completions', 'Custom provider endpoint mismatch');
 assert(captured.init.headers['cf-aig-authorization'] === 'Bearer cf-run-token', 'Provider-native gateway must use cf-aig-authorization');
+assert(/^ses_/.test(captured.init.headers['x-opencode-session']), 'Custom provider must send a generated x-opencode-session header');
 assert(captured.body.response_format?.type === 'json_schema', 'Chat compatibility must use JSON schema response_format');
 assert(!captured.body.tools, 'Generic Chat Completions must not receive Responses web_search tool');
+
+captured = null;
+result = await callAiJson({
+  env:cfEnv, config:chatConfig, profile:chatProfile, reasoning:'low', stage:'session-id-test',
+  input:[{role:'user',content:[{type:'input_text',text:'test'}]}], schema, schemaName:'test_schema', useWeb:false,
+  sessionId:'ses_fixed123',
+});
+assert(result.ok && captured.init.headers['x-opencode-session'] === 'ses_fixed123', 'Explicit session IDs must be forwarded unchanged');
+
+const normalizedCustom = normalizeProviderConfig({ ...chatConfig, profiles: [{ ...chatProfile, sessionHeader: '' }] }, cfEnv);
+assert(normalizedCustom.profiles[0].sessionHeader === 'x-opencode-session', 'Custom provider profiles must default to x-opencode-session');
 
 let retryCalls = 0;
 globalThis.fetch = async () => {

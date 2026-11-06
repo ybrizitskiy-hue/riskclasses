@@ -43,6 +43,7 @@ function openAiProfile(id, label, model, pricing) {
     baseUrl: '',
     pathPrefix: '',
     byokAlias: '',
+    sessionHeader: '',
     webSearchMode: 'responses',
     capabilities: { vision: true, jsonSchema: true, reasoning: true, webSearch: true, promptCache: true, store: true },
     pricing: normalizePricing(pricing),
@@ -93,6 +94,7 @@ export function migrateProviderConfig(value) {
     source.profiles = source.profiles.map((profile) => ({
       baseUrl: '',
       ...profile,
+      sessionHeader: profile?.sessionHeader ?? (profile?.transport === 'cloudflare-provider' ? 'x-opencode-session' : ''),
       webSearchMode: profile?.webSearchMode || defaultWebSearchMode(profile?.protocol),
     }));
   }
@@ -142,6 +144,8 @@ export function validateProviderConfig(value, env = {}) {
 
     const alias = String(profile.byokAlias || '').trim();
     if (alias && !ALIAS_RE.test(alias)) errors.push(`Profile ${id} has an invalid BYOK alias.`);
+    const sessionHeader = String(profile.sessionHeader || '').trim();
+    if (sessionHeader && !/^[A-Za-z0-9-]{1,64}$/.test(sessionHeader)) errors.push(`Profile ${id} has an invalid session header.`);
     const caps = profile.capabilities || {};
     for (const key of ['vision','jsonSchema','reasoning','webSearch','promptCache','store']) {
       if (typeof caps[key] !== 'boolean') errors.push(`Profile ${id} capability ${key} must be true or false.`);
@@ -206,6 +210,7 @@ export function normalizeProviderConfig(value, env = {}) {
     baseUrl: normalizeBaseUrl(profile.baseUrl),
     pathPrefix: String(profile.pathPrefix || '').trim().replace(/^\/+|\/+$/g, ''),
     byokAlias: String(profile.byokAlias || '').trim(),
+    sessionHeader: String(profile.sessionHeader || (profile.transport === 'cloudflare-provider' ? 'x-opencode-session' : '')).trim(),
     webSearchMode: String(profile.webSearchMode || defaultWebSearchMode(profile.protocol)),
     capabilities: {
       vision: Boolean(profile.capabilities?.vision),

@@ -67,6 +67,8 @@ Each profile contains:
 - Cloudflare provider slug;
 - optional managed HTTPS Base URL for `custom-*` providers;
 - provider path prefix (commonly `v1`);
+- optional session header for provider-native/custom routing (defaults to
+  `x-opencode-session` for `cloudflare-provider` profiles);
 - BYOK alias;
 - capability flags: Vision, JSON Schema, Reasoning, Web Search, Prompt Cache, `store:false` support;
 - optional input/cached/output/search pricing used only for approximate telemetry.
@@ -85,6 +87,13 @@ For an OpenAI-compatible provider that is not built into Cloudflare:
 6. The actual upstream API key is still stored separately in Cloudflare Provider Keys/BYOK.
 
 Changing an already-managed Base URL is synchronized to Cloudflare before the new global provider configuration is saved. A failed address synchronization blocks Publish so KV cannot claim an address change that Cloudflare did not accept.
+
+Cloudflare provider/custom profiles also send a session header with each
+request. The default is `x-opencode-session` and the value is a fresh
+`ses_<id>` generated once per analysis and reused across extraction, primary,
+research and escalation calls. This satisfies OpenCode Go's session-routing
+requirement. Change **Session header** to the upstream's expected HTTP header
+name, or leave it blank to disable.
 
 ### Global provider routes
 

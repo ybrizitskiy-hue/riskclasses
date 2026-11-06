@@ -6,7 +6,7 @@ import {
   saveProviderConfig,
   validateProviderConfig,
 } from '../lib/provider-config.js';
-import { callAiJson, publicProfileStatus } from '../lib/ai-client.js';
+import { callAiJson, newAiSessionId, publicProfileStatus } from '../lib/ai-client.js';
 import {
   customProviderAddressChanged,
   syncManagedCustomProviders,
@@ -84,6 +84,7 @@ export async function onRequestPost(context) {
     schemaName: 'provider_connectivity_test',
     useWeb: webSearchRequested,
     promptCacheKey: '',
+    sessionId: newAiSessionId(),
   });
   if (!result.ok || result.result?.status !== 'ok') return json({ ok: false, error: result.error || 'Provider returned an unexpected test result.', telemetry: result.telemetry || null, sync }, result.status || 502);
   return json({

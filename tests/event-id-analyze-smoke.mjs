@@ -11,6 +11,7 @@ assert(src.includes("'manualCheckType'"),'Classifier schema must carry managed r
 assert(src.includes('rulesPayload.resultPolicies'),'Analysis must pass managed resultPolicies to policy evaluator');
 assert(src.includes('resultTransforms: Array.isArray(rules.resultTransforms)'),'AI prompt must receive managed transforms');
 assert(src.includes('managed JSON above is the sole sportsbook rule authority'),'AI routing contract must state JSON authority');
+assert(src.includes('newAiSessionId') && src.includes('sessionId: aiSessionId'),'Analysis must pass a stable session id to every AI call');
 assert(!src.includes('PROVIDER_TENNIS_RULES_PROMPT'),'Analyze core must not import hard-coded provider Tennis rules');
 assert(!/Betradar: Global RC|Betgenius main draw\/non-qualification: Global RC/.test(src),'Analyze core must not embed provider Tennis RC matrix');
 console.log(`event ID analysis contract smoke tests passed (${checks} checks)`);

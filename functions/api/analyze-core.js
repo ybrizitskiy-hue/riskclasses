@@ -7,7 +7,7 @@ import {
   validateProviderConfig,
 } from '../lib/provider-config.js';
 import { effortFor, loadReasoningConfig } from '../lib/reasoning-config.js';
-import { callAiJson } from '../lib/ai-client.js';
+import { callAiJson, newAiSessionId } from '../lib/ai-client.js';
 import { enforceResultPolicy } from '../lib/result-policy.js';
 import {
   decorateInputRows,
@@ -109,6 +109,7 @@ export async function onRequestPost(context) {
   const text = String(body?.text || '').slice(0, MAX_TEXT_CHARS);
   const telemetryCalls = [];
   const warnings = [];
+  const aiSessionId = newAiSessionId();
 
   if (mode === 'image' && !images.length) return json({ error: 'Attach at least one screenshot.' }, 400);
   if (mode === 'text' && !text.trim()) return json({ error: 'Paste at least one Sport + Competition row.' }, 400);
@@ -128,6 +129,7 @@ export async function onRequestPost(context) {
       effortFor(reasoningConfig, routingMode, 'extraction'),
       routingMode,
       telemetryCalls,
+      aiSessionId,
     );
     if (!extraction.ok) return json({ error: extraction.error }, extraction.status || 502);
     rows = extraction.result.rows || [];
@@ -169,6 +171,7 @@ export async function onRequestPost(context) {
       reasoning: effortFor(reasoningConfig, routingMode, 'primary'),
       stage: `${routingMode}-primary`,
       telemetryCalls,
+      aiSessionId,
     });
     if (!primary.ok) return json({ error: primary.error }, primary.status || 502);
     appendClassifierWarnings(warnings, primary.result.warnings);
@@ -189,6 +192,7 @@ export async function onRequestPost(context) {
           reasoning: effortFor(reasoningConfig, routingMode, 'research'),
           stage: `${routingMode}-research`,
           telemetryCalls,
+          aiSessionId,
         });
         if (research.ok) {
           researchCount = pending.length;
@@ -215,6 +219,7 @@ export async function onRequestPost(context) {
           reasoning: effortFor(reasoningConfig, routingMode, 'escalation'),
           stage: `${routingMode}-escalation`,
           telemetryCalls,
+          aiSessionId,
         });
         if (escalation.ok) {
           escalatedCount = pending.length;
@@ -280,7 +285,7 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: corsHeaders() });
 }
 
-async function extractRowsFromImages(env, providerConfig, profile, images, reasoning, routingMode, telemetryCalls) {
+async function extractRowsFromImages(env, providerConfig, profile, images, reasoning, routingMode, telemetryCalls, aiSessionId) {
   const input = [
     {
       role: 'developer',
@@ -309,12 +314,13 @@ async function extractRowsFromImages(env, providerConfig, profile, images, reaso
     schemaName: 'risk_class_row_extraction',
     useWeb: false,
     promptCacheKey: 'riskclasses-row-extraction-v3',
+    sessionId: aiSessionId,
   });
   if (result.telemetry) telemetryCalls.push(result.telemetry);
   return result;
 }
 
-async function classifyWithProfile({ env, providerConfig, profile, rows, rules, reasoning, stage, telemetryCalls }) {
+async function classifyWithProfile({ env, providerConfig, profile, rows, rules, reasoning, stage, telemetryCalls, aiSessionId }) {
   const webAvailable = Boolean(profile?.capabilities?.webSearch && profile?.protocol === 'responses');
   const developerPrompt = buildDeveloperPrompt(rules, { webAvailable });
   const compactRows = rows.map(({
@@ -346,6 +352,7 @@ async function classifyWithProfile({ env, providerConfig, profile, rows, rules, 
     schemaName: 'risk_class_analysis',
     useWeb: true,
     promptCacheKey: `riskclasses-json-authority-v3-${rules.version || 'rules'}-${providerConfig.version || 'providers'}-${profile.id}-classifier`,
+    sessionId: aiSessionId,
   });
   if (result.telemetry) telemetryCalls.push(result.telemetry);
   return result;
