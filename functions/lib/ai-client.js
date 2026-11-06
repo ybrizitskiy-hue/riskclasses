@@ -19,6 +19,7 @@ export async function callAiJson({
   schemaName,
   useWeb = false,
   promptCacheKey = '',
+  sessionId = '',
 }) {
   const runtime = profileRuntimeStatus(env, config, profile);
   if (!runtime.ready) return { ok: false, status: 503, error: `${profile?.label || 'Provider'}: ${runtime.reason}` };
@@ -28,7 +29,7 @@ export async function callAiJson({
 
   const endpoint = profileEndpoint(config, profile, env);
   if (!endpoint) return { ok: false, status: 500, error: `Could not resolve endpoint for ${profile.label}.` };
-  const headers = buildHeaders(env, config, profile);
+  const headers = buildHeaders(env, config, profile, sessionId || newAiSessionId());
   const actualWeb = Boolean(useWeb && profile.capabilities?.webSearch);
   const effectiveInput = actualWeb && profile.protocol === 'chat-completions'
     ? withWebAvailablePrompt(input)
@@ -125,6 +126,12 @@ export function compactPromptCacheKey(value) {
   return `${text.slice(0, prefixLength)}-${hash}`;
 }
 
+export function newAiSessionId() {
+  const random = globalThis.crypto?.randomUUID?.()
+    || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `ses_${String(random).replace(/-/g, '')}`;
+}
+
 async function fetchWithRetries(endpoint, init) {
   let lastError = null;
   const maxAttempts = RETRY_DELAYS_MS.length + 1;
@@ -178,7 +185,7 @@ function stableKeyHash(value) {
   return hash.toString(36).padStart(7, '0');
 }
 
-function buildHeaders(env, config, profile) {
+function buildHeaders(env, config, profile, sessionId) {
   const headers = { 'content-type': 'application/json' };
   if (profile.transport === 'openai-direct') {
     headers.authorization = `Bearer ${env.OPENAI_API_KEY}`;
@@ -190,6 +197,8 @@ function buildHeaders(env, config, profile) {
   } else if (profile.transport === 'cloudflare-provider') {
     headers['cf-aig-authorization'] = `Bearer ${env.CF_AI_GATEWAY_TOKEN}`;
     if (profile.byokAlias) headers['cf-aig-byok-alias'] = profile.byokAlias;
+    const sessionHeader = String(profile.sessionHeader || '').trim();
+    if (sessionHeader && sessionId) headers[sessionHeader] = sessionId;
   }
   return headers;
 }

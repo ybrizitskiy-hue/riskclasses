@@ -51,7 +51,7 @@
           <button id="providerManagerClose" type="button" class="admin-modal-close" aria-label="Close">×</button>
         </div>
         <div id="providerState" class="provider-state">Loading provider configuration…</div>
-        <div class="provider-note"><strong>Key security:</strong> this manager stores model names, routing, upstream base URLs, BYOK aliases and optional pricing only. Raw provider API keys stay in Cloudflare AI Gateway → Provider Keys / Secrets Store. For a custom OpenAI-compatible service, enter its HTTPS root in <b>Base URL</b>; the site can create/update the Cloudflare Custom Provider when the admin API token is configured.</div>
+        <div class="provider-note"><strong>Key security:</strong> this manager stores model names, routing, upstream base URLs, BYOK aliases and optional pricing only. Raw provider API keys stay in Cloudflare AI Gateway → Provider Keys / Secrets Store. For a custom OpenAI-compatible service, enter its HTTPS root in <b>Base URL</b>; the site can create/update the Cloudflare Custom Provider when the admin API token is configured. <b>Session header</b> defaults to <code>x-opencode-session</code> for custom providers; each analysis sends a fresh <code>ses_…</code> id so OpenCode Go can route the request.</div>
 
         <section class="provider-section">
           <div class="provider-section-head"><div><span class="section-label">Cloudflare AI Gateway</span><h4>Gateway address</h4></div><small>Used by Cloudflare REST and provider-native/custom profiles.</small></div>
@@ -206,6 +206,7 @@
           ${field(index, 'providerSlug', 'Provider slug', profile.providerSlug, 'openai / groq / custom-myprovider', '', !providerFields)}
           ${field(index, 'baseUrl', 'Base URL', profile.baseUrl, 'https://api.example.com', 'provider-span-2', !managedCustom)}
           ${field(index, 'pathPrefix', 'Provider path prefix', profile.pathPrefix, 'v1', '', !providerFields)}
+          ${field(index, 'sessionHeader', 'Session header', profile.sessionHeader, 'x-opencode-session', '', !providerFields)}
           ${webSearchModeField(index, profile)}
         </div>
         <div class="provider-capabilities">
@@ -351,6 +352,7 @@
       baseUrl: '',
       pathPrefix: 'v1',
       byokAlias: 'default',
+      sessionHeader: 'x-opencode-session',
       webSearchMode: 'responses',
       capabilities: { vision:false, jsonSchema:true, reasoning:false, webSearch:false, promptCache:false, store:false },
       pricing: { input:null, cached:null, output:null, webSearch:null },
