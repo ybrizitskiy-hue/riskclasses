@@ -180,7 +180,7 @@ function stopProgress(success = true) {
 function normalizeResultRow(row) {
   const confidence = ['High', 'Medium', 'Low'].includes(row.confidence) ? row.confidence : 'Low';
   const manualCheckReason = String(row.manualCheckReason || '').trim();
-  const brandValues = [row.dazn, row.quinnbet, row.nti].map((x) => String(x || ''));
+  const brandValues = [row.dazn, row.quinnbet].map((x) => String(x || ''));
   const hasRec = brandValues.some((x) => /\brec\./i.test(x));
   const hasMissing = brandValues.some((x) => /missing rule|manual check/i.test(x));
 
@@ -217,7 +217,6 @@ function renderResults(payload) {
       <td>${escapeHtml(row.competitionId)}</td>
       <td>${escapeHtml(row.dazn)}</td>
       <td>${escapeHtml(row.quinnbet)}</td>
-      <td>${escapeHtml(row.nti)}</td>
       <td>${escapeHtml(row.basis)}</td>
       <td><span class="confidence-pill ${confClass}">${escapeHtml(row.confidence)}</span></td>
       <td>${sourceChips(row.sources)}</td>
@@ -291,8 +290,8 @@ async function analyze() {
 els.analyzeBtn.addEventListener('click', analyze);
 
 function tsv() {
-  const rows = [['Sport','Competition','Competition ID','DAZN','Quinnbet','NTI','Basis','Confidence','Sources','Manual check','Manual check reason']];
-  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheckType,r.manualCheckReason||'']);
+  const rows = [['Sport','Competition','Competition ID','DAZN','Quinnbet','Basis','Confidence','Sources','Manual check','Manual check reason']];
+  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheckType,r.manualCheckReason||'']);
   return rows.map((row) => row.map((cell) => String(cell ?? '').replace(/\t/g,' ').replace(/\r?\n/g,' ')).join('\t')).join('\n');
 }
 
@@ -308,8 +307,8 @@ function csvEscape(value) {
   return /[",\n]/.test(text) ? `"${text.replace(/"/g,'""')}"` : text;
 }
 els.csvBtn.addEventListener('click', () => {
-  const rows = [['Sport','Competition','Competition ID','DAZN','Quinnbet','NTI','Basis','Confidence','Sources','Manual check','Manual check reason']];
-  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.nti,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheckType,r.manualCheckReason||'']);
+  const rows = [['Sport','Competition','Competition ID','DAZN','Quinnbet','Basis','Confidence','Sources','Manual check','Manual check reason']];
+  for (const r of state.results) rows.push([r.sport,r.competition,r.competitionId,r.dazn,r.quinnbet,r.basis,r.confidence,(r.sources||[]).join(' | '),r.manualCheckType,r.manualCheckReason||'']);
   const blob = new Blob([rows.map((row) => row.map(csvEscape).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

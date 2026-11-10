@@ -60,7 +60,6 @@ function compileRules(rules) {
         none: compileList(match.none),
         dazn: String(item.dazn || ''),
         quinnbet: String(item.quinnbet || ''),
-        nti: String(item.nti || ''),
         basis: String(item.basis || ''),
         source: String(item.source || 'Risk Class guide'),
         confidence: String(item.confidence || 'High'),
@@ -141,7 +140,6 @@ function confirmed(rule) {
   return {
     dazn: rule.dazn,
     quinnbet: rule.quinnbet,
-    nti: rule.nti,
     basis: rule.basis,
     confidence: ['High', 'Medium', 'Low'].includes(rule.confidence) ? rule.confidence : 'High',
     sources: [rule.source || 'Risk Class guide'],
@@ -161,7 +159,6 @@ function applyTransforms(result, row, transforms) {
       ...current,
       dazn: mapRc(current.dazn, transform.brandMap),
       quinnbet: mapRc(current.quinnbet, transform.brandMap),
-      nti: mapRc(current.nti, transform.brandMap),
       global: mapRc(current.global, transform.brandMap),
       basis: transform.basisSuffix
         ? `${String(current.basis || '').trim()}${transform.basisSuffix}`

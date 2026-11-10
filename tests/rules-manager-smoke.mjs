@@ -1,6 +1,6 @@
 import { baselineDeterministicRules, diffRulesBundles, preparePublishedBundle, validateRulesBundle } from '../functions/lib/rules-bundle.js';
 let checks=0;
-const base={schemaVersion:1,version:'v1',instructions:`Rules JSON is sole authority. ${'Preserve managed rules. '.repeat(40)}`,knowledge:`Knowledge. ${'Managed sportsbook rule knowledge. '.repeat(150)}`,deterministicRules:{engineVersion:2,rules:[{id:'r1',sport:'golf',match:{any:['\\bpga tour\\b'],all:[],none:[]},dazn:'RC B',quinnbet:'RC B',nti:'RC B',basis:'managed',source:'Managed JSON'}]},resultPolicies:[],resultTransforms:[]};
+const base={schemaVersion:1,version:'v1',instructions:`Rules JSON is sole authority. ${'Preserve managed rules. '.repeat(40)}`,knowledge:`Knowledge. ${'Managed sportsbook rule knowledge. '.repeat(150)}`,deterministicRules:{engineVersion:2,rules:[{id:'r1',sport:'golf',match:{any:['\\bpga tour\\b'],all:[],none:[]},dazn:'RC B',quinnbet:'RC B',basis:'managed',source:'Managed JSON'}]},resultPolicies:[],resultTransforms:[]};
 let v=validateRulesBundle(base); assert(v.valid,'Complete managed JSON must validate');
 assert(baselineDeterministicRules().rules.length===0,'Code baseline must have zero sportsbook mappings');
 const empty=structuredClone(base); empty.deterministicRules.rules=[]; v=validateRulesBundle(empty); assert(!v.valid&&v.errors.some(x=>x.includes('fallback RC mappings')),'Empty managed rules must fail rather than receive code fallbacks');

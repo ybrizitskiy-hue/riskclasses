@@ -5,18 +5,18 @@ import { baselineDeterministicRules, validateRulesBundle } from '../functions/li
 
 let checks = 0;
 const stageReason = 'Stage/round not provided — High confidence retained; stage check required.';
-const provider = (id, providerName, all, none, dazn, quinnbet, nti) => ({
+const provider = (id, providerName, all, none, dazn, quinnbet) => ({
   id, sport: 'tennis', providers: [providerName],
   match: { any: [], all: [...all, `\\b(?:${providerName.toLowerCase()})\\b`], none },
-  dazn, quinnbet, nti, basis: id, source: 'Managed JSON',
+  dazn, quinnbet, basis: id, source: 'Managed JSON',
 });
 const c='\\bchallengers?\\b', q='\\b(qualification|qualifier|qualifying|quals?|q[1-4])\\b', d='\\bdoubles?\\b';
 const rules = [
-  provider('br-chal','Betradar',[c],[d],'RC G','RC F','RC G'),
-  provider('bg-chal-q','Betgenius',[c,q],[d],'RC G','RC F','RC G'),
-  provider('bg-chal','Betgenius',[c],[q,d],'RC G','RC G','RC G'),
-  provider('db-chal','Databet',[c],[d],'RC G','RC F','RC G'),
-  { id:'snooker', sport:'snooker', match:{any:['\\bworld championship\\b'],all:[],none:[]}, dazn:'RC C',quinnbet:'RC C',nti:'RC C',basis:'managed',source:'Managed JSON' },
+  provider('br-chal','Betradar',[c],[d],'RC G','RC F'),
+  provider('bg-chal-q','Betgenius',[c,q],[d],'RC G','RC F'),
+  provider('bg-chal','Betgenius',[c],[q,d],'RC G','RC G'),
+  provider('db-chal','Databet',[c],[d],'RC G','RC F'),
+  { id:'snooker', sport:'snooker', match:{any:['\\bworld championship\\b'],all:[],none:[]}, dazn:'RC C',quinnbet:'RC C',basis:'managed',source:'Managed JSON' },
 ];
 const stagePolicy = {
   id:'stage', confidences:['High'], sports:['Tennis','Snooker'], field:'competition',
@@ -34,13 +34,13 @@ assert(validateRulesBundle(bundle).valid, 'Managed bundle must validate');
 assert(baselineDeterministicRules().rules.length === 0, 'Code baseline must contain no sportsbook mappings');
 const index = buildRuntimeIndex(bundle);
 for (const [id,name,expected] of [
-  ['U-1','ATP Challenger Example',['RC G','RC F','RC G']],
-  ['BG-1','ATP Challenger Example Qualification',['RC G','RC F','RC G']],
-  ['BG-2','ATP Challenger Example',['RC G','RC G','RC G']],
-  ['DB-1','ATP Challenger Example',['RC G','RC F','RC G']],
+  ['U-1','ATP Challenger Example',['RC G','RC F']],
+  ['BG-1','ATP Challenger Example Qualification',['RC G','RC F']],
+  ['BG-2','ATP Challenger Example',['RC G','RC G']],
+  ['DB-1','ATP Challenger Example',['RC G','RC F']],
 ]) {
   const r=classifyDeterministic({sport:'Tennis',competition:name,competitionId:id},index);
-  assert(r && [r.dazn,r.quinnbet,r.nti].join('/')===expected.join('/'), `JSON provider mapping failed for ${id}`);
+  assert(r && [r.dazn,r.quinnbet].join('/')===expected.slice(0,2).join('/'), `JSON provider mapping failed for ${id}`);
 }
 let r=classifyDeterministic({sport:'Tennis',competition:'ATP Challenger Example',competitionId:'BG-2'},index);
 let f=enforceResultPolicy(r,{sport:'Tennis',competition:'ATP Challenger Example'},bundle.resultPolicies);

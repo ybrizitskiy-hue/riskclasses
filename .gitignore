@@ -1,0 +1,6 @@
+.npm-cache/
+.wrangler/
+.wrangler-logs/
+.dev.vars
+.env
+node_modules/

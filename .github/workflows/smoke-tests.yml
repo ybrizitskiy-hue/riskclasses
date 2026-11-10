@@ -76,3 +76,6 @@ jobs:
         run: node tests/provider-badge-browser-smoke.mjs
       - name: Provider panel stability smoke tests
         run: node tests/provider-panel-stability-smoke.mjs
+
+      - name: Active brand regression
+        run: node tests/active-brands-smoke.mjs

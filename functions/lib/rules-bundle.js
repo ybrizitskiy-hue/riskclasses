@@ -65,7 +65,6 @@ export function validateRulesBundle(value) {
     if (!String(item.sport || '').trim()) errors.push(`${prefix}.sport is required.`);
     validateRc(item.dazn, `${prefix}.dazn`, errors);
     validateRc(item.quinnbet, `${prefix}.quinnbet`, errors);
-    validateRc(item.nti, `${prefix}.nti`, errors);
     if (!String(item.basis || '').trim()) errors.push(`${prefix}.basis is required.`);
     if (item.confidence != null && !['High', 'Medium', 'Low'].includes(item.confidence)) errors.push(`${prefix}.confidence must be High, Medium or Low when supplied.`);
     if (item.manualCheckType != null && typeof item.manualCheckType !== 'string') errors.push(`${prefix}.manualCheckType must be a string when supplied.`);

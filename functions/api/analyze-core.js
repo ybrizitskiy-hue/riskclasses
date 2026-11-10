@@ -51,7 +51,7 @@ const CLASSIFIER_SCHEMA = {
         type: 'object',
         additionalProperties: false,
         required: [
-          'inputIndex', 'sport', 'competition', 'global', 'dazn', 'quinnbet', 'nti', 'basis',
+          'inputIndex', 'sport', 'competition', 'global', 'dazn', 'quinnbet', 'basis',
           'confidence', 'sources', 'manualCheck', 'manualCheckType', 'manualCheckReason', 'needsEscalation', 'escalationReason'
         ],
         properties: {
@@ -61,7 +61,6 @@ const CLASSIFIER_SCHEMA = {
           global: { type: 'string', enum: ['', 'RC A', 'RC B', 'RC C', 'RC D', 'RC E', 'RC F', 'RC G', 'RC H', 'RC I', 'RC A rec.', 'RC B rec.', 'RC C rec.', 'RC D rec.', 'RC E rec.', 'RC F rec.', 'RC G rec.', 'RC H rec.', 'RC I rec.'] },
           dazn: { type: 'string' },
           quinnbet: { type: 'string' },
-          nti: { type: 'string' },
           basis: { type: 'string' },
           confidence: { type: 'string', enum: ['High', 'Medium', 'Low'] },
           sources: { type: 'array', items: { type: 'string' } },
@@ -249,7 +248,6 @@ export async function onRequestPost(context) {
       competitionId: input.competitionId,
       dazn: 'Manual check / missing rule',
       quinnbet: 'Manual check / missing rule',
-      nti: 'Manual check / missing rule',
       basis: 'No classification result returned',
       confidence: 'Low',
       sources: ['Risk Class guide'],
@@ -376,7 +374,7 @@ ${rules.knowledge}
 ${structuredRules}
 
 --- WEBSITE ROUTING CONTRACT (HARD) ---
-The managed JSON above is the sole sportsbook rule authority. These rows were not resolved by deterministicRules.rules from that JSON, so classify them using the same managed instructions and knowledge. Application code does not supply provider-specific Tennis classes, SRL classes, round/stage exceptions, sport matrices, or other fallback RC mappings. Return only structured output. Keep inputIndex unchanged and preserve sport/competition text exactly. Competition ID is provider context only: IDs starting BG are Betgenius, IDs starting DB are Databet, and IDs starting U are Betradar. Always return Global/base plus DAZN, Quinnbet and NTI. A blank or Same as Global brand value inherits the resolved Global value exactly; do not create a missing-rule warning solely because a brand override is absent. Only use Manual check / missing rule when neither managed Global nor a managed brand-specific value can be established. Follow every review label, Stage rule, confidence exception, operational exception, outright adjustment and brand mapping exactly as defined in the managed JSON. ${researchContract} Never invent brand overrides. Set needsEscalation=true only when material classification uncertainty remains after applying the managed JSON.`;
+The managed JSON above is the sole sportsbook rule authority. These rows were not resolved by deterministicRules.rules from that JSON, so classify them using the same managed instructions and knowledge. Application code does not supply provider-specific Tennis classes, SRL classes, round/stage exceptions, sport matrices, or other fallback RC mappings. Return only structured output. Keep inputIndex unchanged and preserve sport/competition text exactly. Competition ID is provider context only: IDs starting BG are Betgenius, IDs starting DB are Databet, and IDs starting U are Betradar. Always return Global/base plus DAZN and Quinnbet. A blank or Same as Global brand value inherits the resolved Global value exactly; do not create a missing-rule warning solely because a brand override is absent. Only use Manual check / missing rule when neither managed Global nor a managed brand-specific value can be established. Follow every review label, Stage rule, confidence exception, operational exception, outright adjustment and brand mapping exactly as defined in the managed JSON. ${researchContract} Never invent brand overrides. Set needsEscalation=true only when material classification uncertainty remains after applying the managed JSON.`;
 }
 
 
@@ -388,7 +386,6 @@ function stripInternal(row, input, policies = []) {
     competitionId: input.competitionId,
     dazn: final.dazn,
     quinnbet: final.quinnbet,
-    nti: final.nti,
     basis: final.basis,
     confidence: final.confidence,
     sources: Array.isArray(final.sources) ? final.sources : [],

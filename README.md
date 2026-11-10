@@ -1,5 +1,5 @@
 # Risk Class Analyst 
-Cloudflare Pages application for internal sportsbook risk-class classification. It accepts screenshots or pasted Sport + Competition rows and returns brands results using the approved risk-class rules.
+Cloudflare Pages application for internal sportsbook risk-class classification. It accepts screenshots or pasted Sport + Competition rows and returns DAZN and Quinnbet results using the approved risk-class rules.
 
 ## Security design
 
@@ -214,6 +214,7 @@ All Provider API routes require a valid admin session.
 Node 22+:
 
 ```bash
+node tests/active-brands-smoke.mjs
 node tests/routing-smoke.mjs
 node tests/admin-gate-smoke.mjs
 node tests/rules-manager-smoke.mjs

@@ -97,11 +97,10 @@ export function parseCompetitionRows(text) {
 export function resolveGlobalBrands(row) {
   const global = normalizeRcWithRecommendation(row?.global);
   return {
-    ...row,
+    ...Object.fromEntries(Object.entries(row || {}).filter(([key]) => !/^nti(?:gaming)?$/i.test(key))),
     global,
     dazn: resolveBrand(row?.dazn, global),
     quinnbet: resolveBrand(row?.quinnbet, global),
-    nti: resolveBrand(row?.nti, global),
   };
 }
 
@@ -162,11 +161,11 @@ function isGlobalInheritanceOnlyWarning(value) {
     /brand[- ]specific[^.]*(?:blank|missing|unspecified|not specified)[^.]*(?:inherit|appl|use|default|fallback)[^.]*global/,
     /(?:blank|missing|unspecified|not specified)[^.]*brand[^.]*(?:inherit|appl|use|default|fallback)[^.]*global/,
     /(?:inherit|appl|use|default|fallback)[^.]*global[^.]*(?:blank|missing|unspecified|not specified)[^.]*brand/,
-    /global[^.]*(?:appl|default|fallback|fills?)[^.]*unspecified[^.]*(?:brand|dazn|quinnbet|nti)/,
-    /(?:dazn|quinnbet|nti)[^.]*brand[- ]specific[^.]*(?:missing|blank|unspecified)[^.]*(?:global|inherit)/,
-    /\b(?:no|without)\s+(?:an?\s+)?(?:explicit\s+)?(?:dazn|quinnbet|nti|brand)\s+(?:specific\s+)?(?:override|rule)[^.]*\bglobal\b/,
-    /\b(?:dazn|quinnbet|nti|brand)[^.]*\binherits?\s+(?:the\s+)?global\b/,
-    /\bglobal\b[^.]*(?:fills?|defaults?\s+to|applies?\s+(?:for|to))[^.]*(?:dazn|quinnbet|nti|unspecified\s+brands?)/,
+    /global[^.]*(?:appl|default|fallback|fills?)[^.]*unspecified[^.]*(?:brand|dazn|quinnbet)/,
+    /(?:dazn|quinnbet)[^.]*brand[- ]specific[^.]*(?:missing|blank|unspecified)[^.]*(?:global|inherit)/,
+    /\b(?:no|without)\s+(?:an?\s+)?(?:explicit\s+)?(?:dazn|quinnbet|brand)\s+(?:specific\s+)?(?:override|rule)[^.]*\bglobal\b/,
+    /\b(?:dazn|quinnbet|brand)[^.]*\binherits?\s+(?:the\s+)?global\b/,
+    /\bglobal\b[^.]*(?:fills?|defaults?\s+to|applies?\s+(?:for|to))[^.]*(?:dazn|quinnbet|unspecified\s+brands?)/,
   ].some((pattern) => pattern.test(text));
 }
 
