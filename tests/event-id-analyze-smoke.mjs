@@ -109,6 +109,84 @@ try {
   globalThis.fetch = fetchBefore;
 }
 
+let eseaTitle = 'ESEA Season 59: Intermediate Division - Oceania';
+let eseaSnippet = 'ESEA Season 59: Intermediate Division - Oceania. Liquipedia Tier: C-Tier.';
+let eseaSearches = 0;
+try {
+  globalThis.fetch = async (target, options) => {
+    assertLive.equal(target, 'https://api.tavily.com/search');
+    assertLive.equal(JSON.parse(options.body).query, 'Counter Strike ESEA Intermediate Season 59 Oceania tournament tier');
+    eseaSearches += 1;
+    return Response.json({ results: [{
+      url: 'https://liquipedia.net/counterstrike/ESEA/Season_59/Intermediate/Oceania',
+      title: eseaTitle + ' - Liquipedia Counter-Strike Wiki',
+      content: eseaSnippet,
+    }] });
+  };
+
+  const row = { sport: 'Counter Strike', competition: 'ESEA Intermediate Season 59 Oceania', inputIndex: 0 };
+  let match = await collectEsportsEvidence(env, [row]);
+  assertLive.equal(match.searches, 1);
+  assertLive.equal(match.evidence.length, 1, 'Liquipedia canonical title should match the entered ESEA alias');
+  assertLive.equal(match.evidence[0].sources[0].url, 'https://liquipedia.net/counterstrike/ESEA/Season_59/Intermediate/Oceania');
+
+  eseaTitle = 'C-Tier Tournaments: 2026 Q4 - Liquipedia Counter-Strike Wiki';
+  eseaSnippet = 'ESEA Season 59: Intermediate Division - Oceania. Liquipedia Tier: C-Tier.';
+  match = await collectEsportsEvidence(env, [row]);
+  assertLive.equal(match.evidence.length, 1, 'A Liquipedia listing snippet naming the exact tournament should be accepted');
+
+  for (const title of [
+    'ESEA Season 58: Intermediate Division - Oceania',
+    'ESEA 59: Intermediate Division - Oceania',
+    'ESEA Season 59: Intermediate Division - Asia',
+    'ESEA Season 59: Advanced Division - Oceania',
+  ]) {
+    eseaTitle = title;
+    eseaSnippet = 'Liquipedia Tier: C-Tier.';
+    match = await collectEsportsEvidence(env, [row]);
+    assertLive.equal(match.evidence.length, 0, `A different ESEA event must not match ${title}`);
+  }
+  assertLive.equal(eseaSearches, 6);
+
+  eseaTitle = 'ESEA Season 59: Intermediate Division - Oceania - Liquipedia Counter-Strike Wiki';
+  eseaSnippet = 'ESEA Season 59: Intermediate Division - Oceania. Liquipedia Tier: C-Tier.';
+  globalThis.fetch = async (target, options) => {
+    if (target === 'https://api.tavily.com/search') {
+      assertLive.equal(JSON.parse(options.body).query, 'Counter Strike ESEA Intermediate Season 59 Oceania tournament tier');
+      return Response.json({ results: [{
+        url: 'https://liquipedia.net/counterstrike/ESEA/Season_59/Intermediate/Oceania',
+        title: eseaTitle,
+        content: eseaSnippet,
+      }] });
+    }
+    assertLive.ok(options.body.includes('ESEA Season 59: Intermediate Division - Oceania'));
+    assertLive.ok(options.body.includes('https://liquipedia.net/counterstrike/ESEA/Season_59/Intermediate/Oceania'));
+    return Response.json({ output_text: JSON.stringify({ rows: [{
+      inputIndex: 0, sport: 'Counter Strike', competition: row.competition, global: 'RC C',
+      daznEs: 'RC C', daznDe: 'RC C', daznUk: 'RC C', basis: 'C-Tier competition',
+      confidence: 'Medium', sources: ['https://liquipedia.net/counterstrike/ESEA/Season_59/Intermediate/Oceania'],
+      manualCheck: true, manualCheckType: 'Yes', manualCheckReason: 'Review per rules',
+      needsEscalation: false, escalationReason: '',
+    }], warnings: [] }) });
+  };
+  const response = await onRequestPost({
+    env,
+    request: new Request('https://example.test/api/analyze', {
+      method: 'POST', body: JSON.stringify({ mode: 'text', routingMode: 'economy', text: `Counter Strike\t${row.competition}` }),
+    }),
+  });
+  assertLive.equal(response.status, 200);
+  const analyzed = await response.json();
+  assertLive.equal(analyzed.telemetry.webSearchCalls, 1);
+  assertLive.equal(analyzed.rows[0].competition, row.competition);
+  assertLive.equal(analyzed.rows[0].manualCheck, true);
+  assertLive.deepEqual(analyzed.rows[0].sources, ['https://liquipedia.net/counterstrike/ESEA/Season_59/Intermediate/Oceania']);
+  assertLive.deepEqual(['daznEs', 'daznDe', 'daznUk'].map(key => analyzed.rows[0][key]), ['RC C', 'RC C', 'RC C']);
+} finally {
+  globalThis.fetch = fetchBefore;
+}
+console.log('Counter-Strike Liquipedia title and alias matching passed');
+
 const savedSetTimeout = globalThis.setTimeout;
 try {
   globalThis.setTimeout = (callback, ms, ...args) =>

@@ -50,8 +50,39 @@ export function isEsportsSport(sport) {
   return ESPORT.test(String(sport || '').trim());
 }
 
-function tournamentTitle(title) {
-  return title.replace(/\s*[-–|]\s*Liquipedia.*$/i, '').trim().toLowerCase().replace(/\s+/g, ' ');
+const GENERIC_TOURNAMENT_WORDS = new Set(['division']);
+
+function tournamentIdentity(value) {
+  return value
+    .replace(/\s*[-–|]\s*Liquipedia.*$/i, '')
+    .toLowerCase()
+    .match(/[a-z0-9]+/g)
+    ?.filter(word => !GENERIC_TOURNAMENT_WORDS.has(word)) || [];
+}
+
+function sameTournamentIdentity(left, right) {
+  const leftIdentity = tournamentIdentity(left).sort();
+  const rightIdentity = tournamentIdentity(right).sort();
+  return leftIdentity.length > 0
+    && leftIdentity.length === rightIdentity.length
+    && leftIdentity.every((word, index) => word === rightIdentity[index]);
+}
+
+function snippetNamesTournament(snippet, competition) {
+  const expected = tournamentIdentity(competition).sort();
+  const found = tournamentIdentity(snippet);
+  if (!expected.length || found.length < expected.length) return false;
+
+  for (let start = 0; start <= found.length - expected.length; start += 1) {
+    const candidate = found.slice(start, start + expected.length).sort();
+    if (expected.every((word, index) => word === candidate[index])) return true;
+  }
+  return false;
+}
+
+function sourceNamesTournament(source, competition) {
+  return sameTournamentIdentity(source.title, competition)
+    || snippetNamesTournament(source.snippet, competition);
 }
 
 export async function collectEsportsEvidence(env, rows, signal) {
@@ -77,7 +108,7 @@ export async function collectEsportsEvidence(env, rows, signal) {
     const results = await Promise.all(batch.map(lookup => searchLiquipedia(env, lookup.query, signal)));
     for (const [index, { sources }] of results.entries()) {
       const { indexes, competition } = batch[index];
-      const exact = sources.filter(source => tournamentTitle(source.title) === tournamentTitle(competition));
+      const exact = sources.filter(source => sourceNamesTournament(source, competition));
       if (exact.length) evidence.push({ inputIndexes: indexes, sources: exact });
     }
   }
