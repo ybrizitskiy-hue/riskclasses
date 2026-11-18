@@ -26,8 +26,8 @@ const schema = {
   properties: { status: { type: 'string' } },
 };
 
-const direct = defaultProviderConfig({ OPENAI_API_KEY: 'openai-test' });
-let validation = validateProviderConfig(direct, { OPENAI_API_KEY: 'openai-test' });
+const direct = defaultProviderConfig({ OPENAI_API_KEY: 'test-only-openai-key-placeholder' });
+let validation = validateProviderConfig(direct, { OPENAI_API_KEY: 'test-only-openai-key-placeholder' });
 assert(validation.valid, `Default provider config must validate: ${validation.errors.join('; ')}`);
 assert(direct.routes.auto.primary === 'openai-luna-direct' && direct.routes.auto.escalation === 'openai-terra-direct', 'Default Auto route must preserve Luna → Terra behavior');
 
@@ -38,7 +38,7 @@ const cfProfile = {
   pricing: { input:1, cached:0.1, output:2, webSearch:null },
 };
 const cfConfig = {
-  schemaVersion: 1, version: 'providers-cf-test', cloudflare: { accountId:'abc123account', gatewayId:'riskclasses' },
+  schemaVersion: 1, version: 'providers-cf-test', cloudflare: { accountId:'test-account-id', gatewayId:'test-gateway-id' },
   profiles: [cfProfile],
   routes: {
     economy:{ extraction:'cf-primary', primary:'cf-primary', research:null, escalation:null },
@@ -46,10 +46,11 @@ const cfConfig = {
     quality:{ extraction:'cf-primary', primary:'cf-primary', research:null, escalation:null },
   },
 };
-const cfEnv = { CF_AI_GATEWAY_TOKEN:'cf-run-token' };
+// Non-secret fixture values; the provider requests below use stubbed fetch calls.
+const cfEnv = { CF_AI_GATEWAY_TOKEN:'test-only-gateway-token-placeholder' };
 validation = validateProviderConfig(cfConfig, cfEnv);
 assert(validation.valid, `Cloudflare REST config must validate: ${validation.errors.join('; ')}`);
-assert(profileEndpoint(cfConfig, cfProfile, cfEnv) === 'https://api.cloudflare.com/client/v4/accounts/abc123account/ai/v1/responses', 'Cloudflare REST endpoint mismatch');
+assert(profileEndpoint(cfConfig, cfProfile, cfEnv) === 'https://api.cloudflare.com/client/v4/accounts/test-account-id/ai/v1/responses', 'Cloudflare REST endpoint mismatch');
 
 let captured = null;
 globalThis.fetch = async (url, init) => {
@@ -65,9 +66,9 @@ let result = await callAiJson({
   input:[{role:'user',content:[{type:'input_text',text:'test'}]}], schema, schemaName:'test_schema', useWeb:false,
 });
 assert(result.ok && result.result.status === 'ok', 'Cloudflare REST Responses request should parse');
-assert(captured.url.includes('/accounts/abc123account/ai/v1/responses'), 'Cloudflare REST request URL is wrong');
-assert(captured.init.headers.authorization === 'Bearer cf-run-token', 'Cloudflare REST must use CF token in Authorization');
-assert(captured.init.headers['cf-aig-gateway-id'] === 'riskclasses', 'Cloudflare REST must select configured gateway');
+assert(captured.url.includes('/accounts/test-account-id/ai/v1/responses'), 'Cloudflare REST request URL is wrong');
+assert(captured.init.headers.authorization === 'Bearer test-only-gateway-token-placeholder', 'Cloudflare REST must use the test-only gateway token placeholder in Authorization');
+assert(captured.init.headers['cf-aig-gateway-id'] === 'test-gateway-id', 'Cloudflare REST must select the configured test gateway');
 assert(captured.init.headers['cf-aig-byok-alias'] === 'production', 'Cloudflare REST must forward BYOK alias');
 assert(!('store' in captured.body) && !('prompt_cache_key' in captured.body), 'Disabled compatibility fields must not be sent');
 
@@ -80,7 +81,7 @@ const chatProfile = {
 const chatConfig = JSON.parse(JSON.stringify(cfConfig));
 chatConfig.profiles = [chatProfile];
 for (const mode of ['auto','economy','quality']) chatConfig.routes[mode] = { extraction:'custom-chat', primary:'custom-chat', research:null, escalation:null };
-validation = validateProviderConfig(chatConfig, { ...cfEnv, CF_AI_GATEWAY_ADMIN_TOKEN:'cf-admin-token' });
+validation = validateProviderConfig(chatConfig, { ...cfEnv, CF_AI_GATEWAY_ADMIN_TOKEN:'test-only-admin-token-placeholder' });
 assert(validation.valid, `Custom Chat config must validate: ${validation.errors.join('; ')}`);
 
 globalThis.fetch = async (url, init) => {
@@ -93,8 +94,8 @@ result = await callAiJson({
   schema, schemaName:'test_schema', useWeb:true,
 });
 assert(result.ok, 'Custom Chat Completions request should parse');
-assert(captured.url === 'https://gateway.ai.cloudflare.com/v1/abc123account/riskclasses/custom-alt/v1/chat/completions', 'Custom provider endpoint mismatch');
-assert(captured.init.headers['cf-aig-authorization'] === 'Bearer cf-run-token', 'Provider-native gateway must use cf-aig-authorization');
+assert(captured.url === 'https://gateway.ai.cloudflare.com/v1/test-account-id/test-gateway-id/custom-alt/v1/chat/completions', 'Custom provider endpoint mismatch');
+assert(captured.init.headers['cf-aig-authorization'] === 'Bearer test-only-gateway-token-placeholder', 'Provider-native gateway must use the test-only gateway token placeholder');
 assert(/^ses_/.test(captured.init.headers['x-opencode-session']), 'Custom provider must send a generated x-opencode-session header');
 assert(captured.body.response_format?.type === 'json_schema', 'Chat compatibility must use JSON schema response_format');
 assert(!captured.body.tools, 'Generic Chat Completions must not receive Responses web_search tool');
@@ -150,7 +151,7 @@ result = await callAiJson({
 });
 assert(!result.ok && result.status === 401 && authCalls === 1, 'Authentication failures must not be retried');
 
-const syncEnv = { CF_AI_GATEWAY_ADMIN_TOKEN:'cf-admin-token' };
+const syncEnv = { CF_AI_GATEWAY_ADMIN_TOKEN:'test-only-admin-token-placeholder' };
 const syncCalls = [];
 globalThis.fetch = async (url, init = {}) => {
   syncCalls.push({ url, method:init.method, headers:init.headers, body:init.body ? JSON.parse(init.body) : null });
@@ -161,7 +162,7 @@ globalThis.fetch = async (url, init = {}) => {
 let sync = await syncManagedCustomProviders(syncEnv, chatConfig);
 assert(sync.ok && sync.results[0]?.action === 'created', 'Managed custom provider should be created when missing');
 assert(syncCalls[1].url.endsWith('/ai-gateway/custom-providers'), 'Custom provider create endpoint mismatch');
-assert(syncCalls[1].headers.authorization === 'Bearer cf-admin-token', 'Custom provider admin API must use its dedicated token');
+assert(syncCalls[1].headers.authorization === 'Bearer test-only-admin-token-placeholder', 'Custom provider admin API must use its dedicated test-only placeholder');
 assert(syncCalls[1].body.base_url === 'https://api.alt.test' && syncCalls[1].body.slug === 'alt', 'Custom provider create body mismatch');
 
 const changedChatConfig = JSON.parse(JSON.stringify(chatConfig));
@@ -180,7 +181,7 @@ assert(syncCalls[1].method === 'PATCH' && syncCalls[1].body.base_url === 'https:
 const kv = new MockKv({ [PROVIDER_CONFIG_KEY]: JSON.stringify(cfConfig) });
 const adminEnv = {
   RISK_ADMIN_PIN:'1703', RISK_ADMIN_SIGNING_SECRET:'test-signing-secret-with-enough-entropy',
-  CF_AI_GATEWAY_TOKEN:'cf-run-token', RISK_RULES:kv,
+  CF_AI_GATEWAY_TOKEN:'test-only-gateway-token-placeholder', RISK_RULES:kv,
 };
 let response = await onRequestGet(context('GET', null, '', adminEnv));
 assert(response.status === 401, 'Provider API must require admin session');
@@ -230,6 +231,9 @@ assert(data.webSearchSources[0]?.url === 'https://liquipedia.net/dota2/Portal:St
 
 const externalConfig = structuredClone(webTestConfig);
 externalConfig.profiles[0].id = 'compatible-4';
+const normalizedExternalProfile = normalizeProviderConfig(externalConfig, adminEnv).profiles[0];
+assert(normalizedExternalProfile.capabilities.webSearch === false, 'Provider 4 must disable its native search capability in normalized settings');
+externalConfig.profiles[0] = normalizedExternalProfile;
 for (const route of Object.values(externalConfig.routes)) {
   for (const key of Object.keys(route)) if (route[key] === 'custom-chat') route[key] = 'compatible-4';
 }
@@ -256,7 +260,7 @@ for (const cite of [trustedUrl, otherUrl]) {
     assert(!JSON.stringify(body).includes('net.example.com'), 'Search evidence must exclude lookalike hosts');
     return Response.json({ choices: [{ message: { content: JSON.stringify({ sourceUrl: cite }) } }] });
   };
-  response = await externalRequest({ ...adminEnv, TAVILY_API_KEY: 'test-search-key' });
+  response = await externalRequest({ ...adminEnv, TAVILY_API_KEY: 'test-only-tavily-key-placeholder' });
   data = await response.json();
   assert(cite === trustedUrl
     ? response.status === 200 && data.webSearchVerified && data.webSearchSources[0]?.url === trustedUrl

@@ -34,7 +34,7 @@ let classifications = 0;
 let citation = url;
 let searchTitle = tournament;
 const env = {
-  OPENAI_API_KEY: 'test-model-key', TAVILY_API_KEY: 'test-search-key',
+  OPENAI_API_KEY: 'test-only-openai-key-placeholder', TAVILY_API_KEY: 'test-only-tavily-key-placeholder',
   RISK_RULES: { get: async key => key === 'custom-gpt-v2' ? JSON.stringify(bundle) : null },
 };
 const fetchBefore = globalThis.fetch;
@@ -208,7 +208,7 @@ console.log('Counter-Strike Liquipedia title and alias matching passed');
 const savedSetTimeout = globalThis.setTimeout;
 try {
   globalThis.setTimeout = (callback, ms, ...args) =>
-    savedSetTimeout(callback, ms === 60_000 ? 0 : ms, ...args);
+    savedSetTimeout(callback, ms === 160_000 ? 0 : ms, ...args);
   const stalledKv = { get: () => new Promise(() => {}) };
   const timeout = await onRequestPost({
     env: { RISK_RULES: stalledKv },
@@ -217,7 +217,7 @@ try {
     }),
   });
   assertLive.equal(timeout.status, 504, 'A stalled KV read must still hit the overall deadline');
-  assertLive.match((await timeout.json()).error, /timed out after 60 seconds/);
+  assertLive.match((await timeout.json()).error, /reached its 160-second time limit/);
 } finally {
   globalThis.setTimeout = savedSetTimeout;
 }

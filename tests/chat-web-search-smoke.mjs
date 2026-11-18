@@ -9,7 +9,8 @@ const schema = {
   properties: { status: { type: 'string' } },
 };
 
-const env = { CF_AI_GATEWAY_TOKEN: 'cf-run-token' };
+// Non-secret fixture values; requests are intercepted by this test's fetch stub.
+const env = { CF_AI_GATEWAY_TOKEN: 'test-only-gateway-token-placeholder' };
 const baseProfile = {
   id: 'custom-web',
   label: 'Custom Web',
@@ -29,7 +30,7 @@ function makeConfig(profile) {
   return {
     schemaVersion: 1,
     version: 'providers-web-test',
-    cloudflare: { accountId: 'abc123account', gatewayId: 'riskclasses' },
+    cloudflare: { accountId: 'test-account-id', gatewayId: 'test-gateway-id' },
     profiles: [profile],
     routes: {
       economy: { extraction: profile.id, primary: profile.id, research: null, escalation: null },
@@ -119,16 +120,24 @@ assert(!validation.valid && validation.errors.some((text) => /Chat Completions w
 const request = { env, config, profile: config.profiles[0], input, schema, schemaName: 'test', stage: 'auto-primary' };
 const savedTimeout = AbortSignal.timeout;
 const savedFetch = globalThis.fetch;
+const savedSetTimeout = globalThis.setTimeout;
+const savedClearTimeout = globalThis.clearTimeout;
 try {
+  globalThis.setTimeout = (callback) => { queueMicrotask(callback); return 0; };
+  globalThis.clearTimeout = () => {};
+
   for (const timeoutStep of ['headers', 'body']) {
-    const deadline = new AbortController();
+    const deadlines = [];
     AbortSignal.timeout = (ms) => {
-      assert(ms === 50_000, 'Model deadline should be 50 seconds');
+      assert(ms === 30_000, 'Each model attempt should have a 30-second deadline');
+      const deadline = new AbortController();
+      deadlines.push(deadline);
       return deadline.signal;
     };
     let calls = 0;
     globalThis.fetch = async (url, { signal }) => {
       calls++;
+      const deadline = deadlines[calls - 1];
       const stall = () => new Promise((_, reject) => {
         signal.addEventListener('abort', () => reject(signal.reason), { once: true });
         queueMicrotask(() => deadline.abort(new DOMException('Model deadline exceeded', 'TimeoutError')));
@@ -137,13 +146,48 @@ try {
       return { json: stall };
     };
     const timeout = await callAiJson(request);
-    assert(timeout.status === 504 && timeout.attempts === 1, timeoutStep + ' timeout must return 504 without retrying');
-    assert(timeout.error.includes('timed out during auto-primary'), 'Timeout must explain which stage stalled');
-    assert(calls === 1, 'Expired model calls must not be repeated');
+    assert(timeout.status === 504 && timeout.attempts === 4, timeoutStep + ' timeout must exhaust four attempts');
+    assert(timeout.error.includes('timed out during auto-primary after 4 attempts (3 retries)'), 'Final timeout must report that all three retries were used');
+    assert(calls === 4, 'A stalled provider call must be retried three times after its initial attempt');
   }
+
+  const retryDeadlines = [];
+  AbortSignal.timeout = (ms) => {
+    assert(ms === 30_000, 'Each model attempt should have a 30-second deadline');
+    const deadline = new AbortController();
+    retryDeadlines.push(deadline);
+    return deadline.signal;
+  };
+  let retryCalls = 0;
+  globalThis.fetch = async (url, { signal }) => {
+    retryCalls++;
+    if (retryCalls === 1) {
+      const deadline = retryDeadlines[0];
+      return new Promise((_, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        queueMicrotask(() => deadline.abort(new DOMException('Model deadline exceeded', 'TimeoutError')));
+      });
+    }
+    return new Response(JSON.stringify({
+      model: 'gpt-test',
+      usage: { prompt_tokens: 20, completion_tokens: 4 },
+      choices: [{ message: { content: '{"status":"ok"}' } }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const recovered = await callAiJson(request);
+  assert(recovered.ok && recovered.attempts === 2, 'A successful second attempt must recover from the first timeout');
+  assert(recovered.telemetry.attempts === 2 && retryCalls === 2, 'Retry telemetry must count both provider attempts');
+
+  const cancelledController = new AbortController();
+  cancelledController.abort(new DOMException('Request cancelled', 'AbortError'));
+  retryCalls = 0;
+  const cancelled = await callAiJson({ ...request, signal: cancelledController.signal });
+  assert(cancelled.status === 504 && cancelled.attempts === 0 && retryCalls === 0, 'A cancelled analysis must not start or retry provider calls');
 } finally {
   AbortSignal.timeout = savedTimeout;
   globalThis.fetch = savedFetch;
+  globalThis.setTimeout = savedSetTimeout;
+  globalThis.clearTimeout = savedClearTimeout;
 }
 
 console.log('chat web search smoke tests passed');

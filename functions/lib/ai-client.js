@@ -4,8 +4,9 @@ import {
   profileRuntimeStatus,
 } from './provider-config.js';
 
-const MODEL_DEADLINE_MS = 50_000;
-const RETRY_DELAYS_MS = [700, 1800];
+const MODEL_DEADLINE_MS = 30_000;
+const RETRY_DELAYS_MS = [700, 1800, 3000];
+const MAX_MODEL_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
 const MAX_RETRY_AFTER_MS = 5000;
 const MAX_PROMPT_CACHE_KEY_LENGTH = 64;
 
@@ -40,21 +41,26 @@ export async function callAiJson({
     ? buildChatRequest({ profile, reasoning, input: effectiveInput, schema, schemaName, actualWeb })
     : buildResponsesRequest({ profile, reasoning, input: effectiveInput, schema, schemaName, actualWeb, promptCacheKey });
 
-  const modelDeadline = AbortSignal.timeout(MODEL_DEADLINE_MS);
-  const modelSignal = signal ? AbortSignal.any([signal, modelDeadline]) : modelDeadline;
   const timeoutResult = (attempts) => ({
     ok: false,
     status: 504,
-    error: `${profile.label} timed out during ${stage}. Run the analysis again.`,
+    error: `${profile.label} timed out during ${stage} after ${attempts} attempts (${Math.max(0, attempts - 1)} retries). Run the analysis again.`,
     attempts,
   });
   const fetchResult = await fetchWithRetries(endpoint, {
-    signal: modelSignal,
     method: 'POST',
     headers,
     body: JSON.stringify(requestBody),
-  });
-  if (modelSignal.aborted) return timeoutResult(fetchResult.attempts);
+  }, signal);
+  if (fetchResult.timedOut) return timeoutResult(fetchResult.attempts);
+  if (fetchResult.aborted) {
+    return {
+      ok: false,
+      status: 504,
+      error: `${profile.label} request was cancelled during ${stage}.`,
+      attempts: fetchResult.attempts,
+    };
+  }
   if (!fetchResult.response) {
     return {
       ok: false,
@@ -65,8 +71,7 @@ export async function callAiJson({
   }
 
   const upstream = fetchResult.response;
-  const received = await upstream.json().catch(() => ({}));
-  if (modelSignal.aborted) return timeoutResult(fetchResult.attempts);
+  const received = fetchResult.received;
   const data = unwrapCloudflare(received);
   const telemetry = callTelemetry(data, profile, {
     reasoning,
@@ -145,24 +150,46 @@ export function newAiSessionId() {
   return `ses_${String(random).replace(/-/g, '')}`;
 }
 
-async function fetchWithRetries(endpoint, init) {
+async function fetchWithRetries(endpoint, init, parentSignal) {
   let lastError = null;
-  const maxAttempts = RETRY_DELAYS_MS.length + 1;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    if (init.signal.aborted) return { response: null, attempts: attempt - 1, error: init.signal.reason };
+  for (let attempt = 1; attempt <= MAX_MODEL_ATTEMPTS; attempt += 1) {
+    if (parentSignal?.aborted) return { response: null, attempts: attempt - 1, error: parentSignal.reason, aborted: true };
+    const modelDeadline = AbortSignal.timeout(MODEL_DEADLINE_MS);
+    const attemptSignal = parentSignal ? AbortSignal.any([parentSignal, modelDeadline]) : modelDeadline;
     try {
-      const response = await fetch(endpoint, init);
-      if (!isRetryableStatus(response.status) || attempt === maxAttempts) {
-        return { response, attempts: attempt, error: null };
+      const response = await fetch(endpoint, { ...init, signal: attemptSignal });
+      if (parentSignal?.aborted) return { response: null, attempts: attempt, error: parentSignal.reason, aborted: true };
+      if (modelDeadline.aborted) {
+        lastError = modelDeadline.reason;
+        if (attempt === MAX_MODEL_ATTEMPTS) return { response: null, attempts: attempt, error: lastError, timedOut: true };
+        await sleep(RETRY_DELAYS_MS[attempt - 1], parentSignal);
+        continue;
       }
-      await sleep(retryDelay(response, attempt), init.signal);
+
+      if (isRetryableStatus(response.status) && attempt < MAX_MODEL_ATTEMPTS) {
+        await sleep(retryDelay(response, attempt), parentSignal);
+        continue;
+      }
+
+      const received = await response.json().catch(() => ({}));
+      if (parentSignal?.aborted) return { response: null, attempts: attempt, error: parentSignal.reason, aborted: true };
+      if (modelDeadline.aborted) {
+        lastError = modelDeadline.reason;
+        if (attempt === MAX_MODEL_ATTEMPTS) return { response: null, attempts: attempt, error: lastError, timedOut: true };
+        await sleep(RETRY_DELAYS_MS[attempt - 1], parentSignal);
+        continue;
+      }
+      return { response, received, attempts: attempt, error: null };
     } catch (error) {
       lastError = error;
-      if (init.signal.aborted || attempt === maxAttempts) return { response: null, attempts: attempt, error: lastError };
-      await sleep(RETRY_DELAYS_MS[attempt - 1], init.signal);
+      if (parentSignal?.aborted) return { response: null, attempts: attempt, error: parentSignal.reason, aborted: true };
+      if (attempt === MAX_MODEL_ATTEMPTS) {
+        return { response: null, attempts: attempt, error: lastError, timedOut: modelDeadline.aborted };
+      }
+      await sleep(RETRY_DELAYS_MS[attempt - 1], parentSignal);
     }
   }
-  return { response: null, attempts: maxAttempts, error: lastError };
+  return { response: null, attempts: MAX_MODEL_ATTEMPTS, error: lastError };
 }
 
 function isRetryableStatus(status) {
@@ -187,13 +214,13 @@ function parseRetryAfter(value) {
 }
 
 function sleep(ms, signal) {
-  if (signal.aborted) return Promise.resolve();
+  if (signal?.aborted) return Promise.resolve();
   return new Promise((resolve) => {
     const timer = setTimeout(finish, ms);
-    signal.addEventListener('abort', finish, { once: true });
+    signal?.addEventListener('abort', finish, { once: true });
     function finish() {
       clearTimeout(timer);
-      signal.removeEventListener('abort', finish);
+      signal?.removeEventListener('abort', finish);
       resolve();
     }
   });

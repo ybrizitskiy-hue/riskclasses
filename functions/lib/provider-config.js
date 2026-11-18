@@ -216,7 +216,11 @@ export function normalizeProviderConfig(value, env = {}) {
       vision: Boolean(profile.capabilities?.vision),
       jsonSchema: Boolean(profile.capabilities?.jsonSchema),
       reasoning: Boolean(profile.capabilities?.reasoning),
-      webSearch: Boolean(profile.capabilities?.webSearch),
+      webSearch: profile.id === 'compatible-4'
+        && profile.protocol === 'chat-completions'
+        && profile.webSearchMode === 'native'
+        ? false
+        : Boolean(profile.capabilities?.webSearch),
       promptCache: Boolean(profile.capabilities?.promptCache),
       store: Boolean(profile.capabilities?.store),
     },
