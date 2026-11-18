@@ -9,13 +9,13 @@ export function usesExternalSearch(profile) {
     && profile.capabilities?.webSearch === true;
 }
 
-export async function searchLiquipedia(env, query, request = fetch) {
+export async function searchLiquipedia(env, query) {
   const key = String(env?.TAVILY_API_KEY || '').trim();
   if (!key) return { sources: [], error: 'TAVILY_API_KEY is not configured.' };
   try {
-    const response = await request(SEARCH_ENDPOINT, {
+    const response = await globalThis.fetch(SEARCH_ENDPOINT, {
       method: 'POST',
-      redirect: 'error',
+      redirect: 'manual',
       signal: AbortSignal.timeout(5000),
       headers: { 'authorization': `Bearer ${key}`, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -28,9 +28,10 @@ export async function searchLiquipedia(env, query, request = fetch) {
       }),
     });
     if (!response.ok) return { sources: [], error: `Liquipedia search returned HTTP ${response.status}.` };
-    const data = await response.json();
+    const data = await response.json().catch(() => null);
+    if (!Array.isArray(data?.results)) return { sources: [], error: 'Tavily returned an invalid search response.' };
     const sources = [];
-    for (const item of Array.isArray(data.results) ? data.results.slice(0, 3) : []) {
+    for (const item of data.results.slice(0, 3)) {
       let url;
       try { url = new URL(item?.url); } catch { continue; }
       if (url.origin !== 'https://liquipedia.net' || url.username || url.password || url.pathname === '/') continue;
@@ -38,8 +39,9 @@ export async function searchLiquipedia(env, query, request = fetch) {
       sources.push({ url: url.href, title: String(item.title || '').slice(0, 160), snippet: item.content.trim().slice(0, 800) });
     }
     return { sources, error: sources.length ? '' : 'No HTTPS Liquipedia result with source text was returned.' };
-  } catch {
-    return { sources: [], error: 'Liquipedia search did not complete.' };
+  } catch (error) {
+    const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+    return { sources: [], error: timedOut ? 'Tavily search timed out.' : 'Cloudflare could not complete the Tavily request.' };
   }
 }
 

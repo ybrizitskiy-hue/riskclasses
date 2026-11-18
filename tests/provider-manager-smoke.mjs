@@ -242,7 +242,8 @@ assert(response.status === 503 && /TAVILY_API_KEY/.test((await response.json()).
 const trustedUrl = 'https://liquipedia.net/dota2/Portal:Statistics/Tournament_prize_pools';
 const otherUrl = 'https://liquipedia.net/dota2/Unretrieved';
 for (const cite of [trustedUrl, otherUrl]) {
-  globalThis.fetch = async (url, options) => {
+  globalThis.fetch = async function (url, options) {
+    if (url === 'https://api.tavily.com/search') assert(this === globalThis, 'Cloudflare fetch must retain the global receiver');
     const body = JSON.parse(options.body);
     if (url === 'https://api.tavily.com/search') {
       assert(body.search_depth === 'basic' && body.include_domains[0] === 'liquipedia.net', 'Search must stay on the supported free tier and requested domain');
