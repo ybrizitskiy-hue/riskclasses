@@ -4,6 +4,7 @@ import {
   profileRuntimeStatus,
 } from './provider-config.js';
 
+const MODEL_DEADLINE_MS = 50_000;
 const RETRY_DELAYS_MS = [700, 1800];
 const MAX_RETRY_AFTER_MS = 5000;
 const MAX_PROMPT_CACHE_KEY_LENGTH = 64;
@@ -20,6 +21,7 @@ export async function callAiJson({
   useWeb = false,
   promptCacheKey = '',
   sessionId = '',
+  signal,
 }) {
   const runtime = profileRuntimeStatus(env, config, profile);
   if (!runtime.ready) return { ok: false, status: 503, error: `${profile?.label || 'Provider'}: ${runtime.reason}` };
@@ -38,11 +40,21 @@ export async function callAiJson({
     ? buildChatRequest({ profile, reasoning, input: effectiveInput, schema, schemaName, actualWeb })
     : buildResponsesRequest({ profile, reasoning, input: effectiveInput, schema, schemaName, actualWeb, promptCacheKey });
 
+  const modelDeadline = AbortSignal.timeout(MODEL_DEADLINE_MS);
+  const modelSignal = signal ? AbortSignal.any([signal, modelDeadline]) : modelDeadline;
+  const timeoutResult = (attempts) => ({
+    ok: false,
+    status: 504,
+    error: `${profile.label} timed out during ${stage}. Run the analysis again.`,
+    attempts,
+  });
   const fetchResult = await fetchWithRetries(endpoint, {
+    signal: modelSignal,
     method: 'POST',
     headers,
     body: JSON.stringify(requestBody),
   });
+  if (modelSignal.aborted) return timeoutResult(fetchResult.attempts);
   if (!fetchResult.response) {
     return {
       ok: false,
@@ -54,6 +66,7 @@ export async function callAiJson({
 
   const upstream = fetchResult.response;
   const received = await upstream.json().catch(() => ({}));
+  if (modelSignal.aborted) return timeoutResult(fetchResult.attempts);
   const data = unwrapCloudflare(received);
   const telemetry = callTelemetry(data, profile, {
     reasoning,
@@ -136,16 +149,17 @@ async function fetchWithRetries(endpoint, init) {
   let lastError = null;
   const maxAttempts = RETRY_DELAYS_MS.length + 1;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (init.signal.aborted) return { response: null, attempts: attempt - 1, error: init.signal.reason };
     try {
       const response = await fetch(endpoint, init);
       if (!isRetryableStatus(response.status) || attempt === maxAttempts) {
         return { response, attempts: attempt, error: null };
       }
-      await sleep(retryDelay(response, attempt));
+      await sleep(retryDelay(response, attempt), init.signal);
     } catch (error) {
       lastError = error;
-      if (attempt === maxAttempts) return { response: null, attempts: attempt, error: lastError };
-      await sleep(RETRY_DELAYS_MS[attempt - 1]);
+      if (init.signal.aborted || attempt === maxAttempts) return { response: null, attempts: attempt, error: lastError };
+      await sleep(RETRY_DELAYS_MS[attempt - 1], init.signal);
     }
   }
   return { response: null, attempts: maxAttempts, error: lastError };
@@ -172,8 +186,17 @@ function parseRetryAfter(value) {
   return Math.max(0, at - Date.now());
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+function sleep(ms, signal) {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(finish, ms);
+    signal.addEventListener('abort', finish, { once: true });
+    function finish() {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', finish);
+      resolve();
+    }
+  });
 }
 
 function stableKeyHash(value) {

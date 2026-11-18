@@ -125,12 +125,17 @@ document.addEventListener('paste', (event) => {
 });
 els.bulkInput.addEventListener('input', updateAnalyzeState);
 
-function fileToDataUrl(file) {
+function fileToDataUrl(file, signal) {
+  signal.throwIfAborted();
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
+    const cancel = () => reader.abort();
     reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
+    reader.onerror = () => reject(reader.error);
+    reader.onabort = () => reject(signal.reason);
+    reader.onloadend = () => signal.removeEventListener('abort', cancel);
     reader.readAsDataURL(file);
+    signal.addEventListener('abort', cancel, { once: true });
   });
 }
 
@@ -255,6 +260,8 @@ function showLocalWarning(message) {
   els.resultsCard.classList.remove('hidden');
 }
 
+const ANALYSIS_REQUEST_DEADLINE_MS = 65_000;
+
 async function analyze() {
   if (state.busy) return;
   state.busy = true;
@@ -262,25 +269,30 @@ async function analyze() {
   els.analyzeBtn.classList.add('loading');
   els.analyzeBtn.querySelector('.btn-label').textContent = 'Analyzing…';
   startProgress();
+  const deadline = AbortSignal.timeout(ANALYSIS_REQUEST_DEADLINE_MS);
   try {
-    const images = state.mode === 'image' ? await Promise.all(state.files.map(fileToDataUrl)) : [];
+    const images = state.mode === 'image' ? await Promise.all(state.files.map(file => fileToDataUrl(file, deadline))) : [];
     const body = {
       mode: state.mode,
       images,
       text: state.mode === 'text' ? els.bulkInput.value : '',
     };
     const response = await fetch('/api/analyze', {
+      signal: deadline,
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
     const payload = await response.json().catch(() => ({}));
+    deadline.throwIfAborted();
     if (!response.ok) throw new Error(payload.error || `API returned HTTP ${response.status}`);
     stopProgress(true);
     renderResults(payload);
   } catch (error) {
     stopProgress(false);
-    showLocalWarning(error.message || 'Analysis failed.');
+    showLocalWarning(deadline.aborted
+      ? 'Analysis timed out after 65 seconds. Run the analysis again.'
+      : error.message || 'Analysis failed.');
   } finally {
     state.busy = false;
     els.analyzeBtn.classList.remove('loading');

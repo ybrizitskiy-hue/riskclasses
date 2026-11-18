@@ -115,6 +115,37 @@ const badConfig = configFor(badProfile);
 validation = validateProviderConfig(badConfig, env);
 assert(!validation.valid && validation.errors.some((text) => /Chat Completions web-search adapter/i.test(text)), 'Responses profile must reject Chat-only web search adapter');
 
+
+const request = { env, config, profile: config.profiles[0], input, schema, schemaName: 'test', stage: 'auto-primary' };
+const savedTimeout = AbortSignal.timeout;
+const savedFetch = globalThis.fetch;
+try {
+  for (const timeoutStep of ['headers', 'body']) {
+    const deadline = new AbortController();
+    AbortSignal.timeout = (ms) => {
+      assert(ms === 50_000, 'Model deadline should be 50 seconds');
+      return deadline.signal;
+    };
+    let calls = 0;
+    globalThis.fetch = async (url, { signal }) => {
+      calls++;
+      const stall = () => new Promise((_, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        queueMicrotask(() => deadline.abort(new DOMException('Model deadline exceeded', 'TimeoutError')));
+      });
+      if (timeoutStep === 'headers') return stall();
+      return { json: stall };
+    };
+    const timeout = await callAiJson(request);
+    assert(timeout.status === 504 && timeout.attempts === 1, timeoutStep + ' timeout must return 504 without retrying');
+    assert(timeout.error.includes('timed out during auto-primary'), 'Timeout must explain which stage stalled');
+    assert(calls === 1, 'Expired model calls must not be repeated');
+  }
+} finally {
+  AbortSignal.timeout = savedTimeout;
+  globalThis.fetch = savedFetch;
+}
+
 console.log('chat web search smoke tests passed');
 
 function assert(condition, message) {
