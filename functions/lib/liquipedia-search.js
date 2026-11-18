@@ -1,6 +1,6 @@
 const SEARCH_ENDPOINT = 'https://api.tavily.com/search';
 export const LIQUIPEDIA_TEST_QUERY = 'Liquipedia Dota 2 tournament prize pool statistics';
-const ESPORT = /^(?:e[- ]?sports?(?:\s*[-:/]\s*.+)?|dota\s*2|counter[- ]?strike(?:\s*2)?|cs2|league of legends|valorant|rainbow six(?: siege)?|rocket league|overwatch(?:\s*2)?|starcraft(?:\s*2)?|pubg(?: mobile)?|mobile legends(?: bang bang)?)$/i;
+const ESPORT = /^(?:e[- ]?sports?(?:\s*(?:[-:/]\s*.+|\(.+\)))?|dota\s*2|counter[- ]?strike(?:\s*(?:2|:\s*global offensive))?|cs2|cs:?go|league of legends|valorant|rainbow six(?: siege)?|rocket league|overwatch(?:\s*2)?|starcraft(?:\s*2)?|pubg(?: mobile)?|mobile legends(?: bang bang)?)$/i;
 
 export function usesExternalSearch(profile) {
   return profile?.id === 'compatible-4'
@@ -45,21 +45,39 @@ export async function searchLiquipedia(env, query) {
   }
 }
 
+export function isEsportsSport(sport) {
+  return ESPORT.test(String(sport || '').trim());
+}
+
+function tournamentTitle(title) {
+  return title.replace(/\s*[-–|]\s*Liquipedia.*$/i, '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 export async function collectEsportsEvidence(env, rows) {
+  if (!String(env?.TAVILY_API_KEY || '').trim()) return { evidence: [], searches: 0 };
+
   const lookups = new Map();
   for (const row of rows) {
     const sport = String(row.sport || '').trim();
     const competition = String(row.competition || '').trim();
-    if (!ESPORT.test(sport) || !competition || competition.length > 180) continue;
+    if (!isEsportsSport(sport) || !competition) continue;
     const query = `${sport} ${competition} tournament tier`;
-    if (!lookups.has(query) && lookups.size >= 3) continue;
-    if (!lookups.has(query)) lookups.set(query, { indexes: [], result: searchLiquipedia(env, query) });
-    lookups.get(query).indexes.push(row.inputIndex);
+    const key = query.toLowerCase().replace(/\s+/g, ' ');
+    if (!lookups.has(key)) lookups.set(key, { indexes: [], competition, query });
+    lookups.get(key).indexes.push(row.inputIndex);
   }
+
   const evidence = [];
-  for (const { indexes, result } of lookups.values()) {
-    const { sources } = await result;
-    if (sources.length) evidence.push({ inputIndexes: indexes, sources });
+  const pending = [...lookups.values()];
+  const parallelSearches = 3;
+  for (let offset = 0; offset < pending.length; offset += parallelSearches) {
+    const batch = pending.slice(offset, offset + parallelSearches);
+    const results = await Promise.all(batch.map(lookup => searchLiquipedia(env, lookup.query)));
+    for (const [index, { sources }] of results.entries()) {
+      const { indexes, competition } = batch[index];
+      const exact = sources.filter(source => tournamentTitle(source.title) === tournamentTitle(competition));
+      if (exact.length) evidence.push({ inputIndexes: indexes, sources: exact });
+    }
   }
-  return evidence;
+  return { evidence, searches: pending.length };
 }

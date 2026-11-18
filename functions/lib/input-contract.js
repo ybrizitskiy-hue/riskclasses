@@ -1,3 +1,5 @@
+import { isEsportsSport } from './liquipedia-search.js';
+
 const MISSING_RULE = 'Manual check / missing rule';
 
 const KNOWN_SPORTS = new Set([
@@ -194,5 +196,5 @@ function normalizeHeader(value) {
 }
 
 function isKnownSport(value) {
-  return KNOWN_SPORTS.has(normalizeHeader(value));
+  return KNOWN_SPORTS.has(normalizeHeader(value)) || isEsportsSport(value);
 }
