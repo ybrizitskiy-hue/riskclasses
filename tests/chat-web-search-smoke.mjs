@@ -129,7 +129,7 @@ try {
   for (const timeoutStep of ['headers', 'body']) {
     const deadlines = [];
     AbortSignal.timeout = (ms) => {
-      assert(ms === 30_000, 'Each model attempt should have a 30-second deadline');
+      assert(ms === 50_000, 'Each model attempt should have a 50-second deadline');
       const deadline = new AbortController();
       deadlines.push(deadline);
       return deadline.signal;
@@ -153,7 +153,7 @@ try {
 
   const retryDeadlines = [];
   AbortSignal.timeout = (ms) => {
-    assert(ms === 30_000, 'Each model attempt should have a 30-second deadline');
+    assert(ms === 50_000, 'Each model attempt should have a 50-second deadline');
     const deadline = new AbortController();
     retryDeadlines.push(deadline);
     return deadline.signal;

@@ -2,24 +2,27 @@
 
 ## Current checkpoint — 2026-11-18
 
-- Provider timeout retry and Tavily-only search changes are in PR #26,
-  `codex/provider4-timeout-retries`, based on `f5264d8ac35cf853b42dedbefffaed1388175219`.
-  Source commit `51aeb8b928439cf253487f895f0f601580b8f97d` passed the local PR
-  verification suite and GitHub's `PR verification gate`, `Regression tests`,
-  and `Risk Class smoke tests` before this handoff update.
-- Provider attempts have a 30-second deadline and retry up to three times. The
-  analysis/browser deadlines are 160/170 seconds. Compatible provider 4's native
-  Web Search capability is disabled for its Chat Completions/native profile;
-  Tavily still searches Liquipedia and DeepSeek receives the retrieved evidence.
-- Production was not changed. The active Pages version and live provider/KV
-  configuration could not be captured in this background session because the
-  Wrangler CLI/login and authenticated Cloudflare Admin API are unavailable.
-  The planned runtime difference is only provider 4's native Web Search flag;
-  compare the actual settings before promotion. Rollback source is
-  `f5264d8ac35cf853b42dedbefffaed1388175219`.
-- Next action: capture the active Pages version and runtime settings, compare
-  them with the intended flag change, then promote and run the authenticated
-  provider 4 Liquipedia check if the comparison is clean.
+- PR #26 merged as `c044f70ee089173576b9f979bf67ec26b0a89bc1`; Cloudflare Pages
+  production deployment `b2f70db2-8dcc-4cf5-8864-e20a3268832d` succeeded.
+  Auto routes to Compatible provider 4 (`deepseek-v4.1-flash`), and v29 is live.
+- Production configuration before and after PR #26 matched: `RISK_RULES` KV,
+  compatibility date/flags, and the same six configured secret names including
+  `TAVILY_API_KEY`. Secret values were not read. The no-delta comparison also
+  applies to the current timeout-only candidate.
+- A live PGL Wallachia Season 8 request succeeded through Auto/Provider 4 and
+  returned the verified Liquipedia page with RC A for ES, DE and UK. The live
+  five-event batch exhausted four 30-second attempts. Gateway evidence includes
+  a successful DeepSeek request with 94,633 input tokens and 42.861 seconds of
+  latency, showing that the 30-second attempt ceiling was too short.
+- Current candidate branch `codex/provider4-latency-budget` is based on
+  `c044f70ee089173576b9f979bf67ec26b0a89bc1`. It raises each provider attempt
+  to 50 seconds and sets bounded analysis/browser deadlines to 240/250 seconds
+  so all three retries can finish. Tavily search and provider routing are
+  unchanged. Current production rollback reference is deployment
+  `b2f70db2-8dcc-4cf5-8864-e20a3268832d`; no new production change is pending.
+- Focused chat-web-search and analysis pipeline smoke tests passed. Next action:
+  finish PR verification, compare live settings before merge, deploy, verify
+  the unchanged settings, then rerun the five-event production batch.
 
 ## Previous checkpoint — 2026-11-18 (rules candidate)
 
