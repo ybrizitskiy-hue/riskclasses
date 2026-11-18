@@ -228,7 +228,42 @@ data = await response.json();
 assert(response.status === 200 && data.ok && data.webSearchVerified, 'A returned HTTPS Liquipedia citation must verify provider web search');
 assert(data.webSearchSources[0]?.url === 'https://liquipedia.net/dota2/Portal:Statistics/Tournament_prize_pools', 'Verified test must return the cited Liquipedia URL');
 
-console.log('provider manager smoke tests passed (39 checks)');
+const externalConfig = structuredClone(webTestConfig);
+externalConfig.profiles[0].id = 'compatible-4';
+for (const route of Object.values(externalConfig.routes)) {
+  for (const key of Object.keys(route)) if (route[key] === 'custom-chat') route[key] = 'compatible-4';
+}
+const externalRequest = env => onRequestPost(context('POST', {
+  action: 'test', profileId: 'compatible-4', config: externalConfig,
+}, cookie, env));
+response = await externalRequest(adminEnv);
+assert(response.status === 503 && /TAVILY_API_KEY/.test((await response.json()).error), 'A missing search key must fail explicitly');
+
+const trustedUrl = 'https://liquipedia.net/dota2/Portal:Statistics/Tournament_prize_pools';
+const otherUrl = 'https://liquipedia.net/dota2/Unretrieved';
+for (const cite of [trustedUrl, otherUrl]) {
+  globalThis.fetch = async (url, options) => {
+    const body = JSON.parse(options.body);
+    if (url === 'https://api.tavily.com/search') {
+      assert(body.search_depth === 'basic' && body.include_domains[0] === 'liquipedia.net', 'Search must stay on the supported free tier and requested domain');
+      return Response.json({ results: [
+        { url: 'https://liquipedia.net.example.com/spoof', title: 'Spoof', content: 'spoof' },
+        { url: trustedUrl, title: 'Dota 2 prize pools', content: 'Tournament prize pool statistics.' },
+      ] });
+    }
+    assert(!body.tools && body.messages.some(message => JSON.stringify(message).includes(trustedUrl)), 'DeepSeek must receive retrieved evidence without a native search tool');
+    assert(!JSON.stringify(body).includes('net.example.com'), 'Search evidence must exclude lookalike hosts');
+    return Response.json({ choices: [{ message: { content: JSON.stringify({ sourceUrl: cite }) } }] });
+  };
+  response = await externalRequest({ ...adminEnv, TAVILY_API_KEY: 'test-search-key' });
+  data = await response.json();
+  assert(cite === trustedUrl
+    ? response.status === 200 && data.webSearchVerified && data.webSearchSources[0]?.url === trustedUrl
+    : response.status === 502 && !data.webSearchVerified,
+  'Provider 4 live-test contract must accept only a retrieved source');
+}
+
+console.log('provider manager smoke tests passed');
 
 function context(method, body, cookieValue, env) {
   const headers = {};
