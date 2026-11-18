@@ -4,7 +4,7 @@ import {
   profileRuntimeStatus,
 } from './provider-config.js';
 
-const MODEL_DEADLINE_MS = 30_000;
+const MODEL_DEADLINE_MS = 50_000;
 const RETRY_DELAYS_MS = [700, 1800, 3000];
 const MAX_MODEL_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
 const MAX_RETRY_AFTER_MS = 5000;

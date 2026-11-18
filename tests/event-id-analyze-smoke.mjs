@@ -208,7 +208,7 @@ console.log('Counter-Strike Liquipedia title and alias matching passed');
 const savedSetTimeout = globalThis.setTimeout;
 try {
   globalThis.setTimeout = (callback, ms, ...args) =>
-    savedSetTimeout(callback, ms === 160_000 ? 0 : ms, ...args);
+    savedSetTimeout(callback, ms === 240_000 ? 0 : ms, ...args);
   const stalledKv = { get: () => new Promise(() => {}) };
   const timeout = await onRequestPost({
     env: { RISK_RULES: stalledKv },
@@ -217,7 +217,7 @@ try {
     }),
   });
   assertLive.equal(timeout.status, 504, 'A stalled KV read must still hit the overall deadline');
-  assertLive.match((await timeout.json()).error, /reached its 160-second time limit/);
+  assertLive.match((await timeout.json()).error, /reached its 240-second time limit/);
 } finally {
   globalThis.setTimeout = savedSetTimeout;
 }
