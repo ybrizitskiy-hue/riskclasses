@@ -108,3 +108,20 @@ try {
 } finally {
   globalThis.fetch = fetchBefore;
 }
+
+const savedSetTimeout = globalThis.setTimeout;
+try {
+  globalThis.setTimeout = (callback, ms, ...args) =>
+    savedSetTimeout(callback, ms === 60_000 ? 0 : ms, ...args);
+  const stalledKv = { get: () => new Promise(() => {}) };
+  const timeout = await onRequestPost({
+    env: { RISK_RULES: stalledKv },
+    request: new Request('https://example.test/api/analyze', {
+      method: 'POST', body: JSON.stringify({ mode: 'text', text: 'Dota 2\t' + tournament }),
+    }),
+  });
+  assertLive.equal(timeout.status, 504, 'A stalled KV read must still hit the overall deadline');
+  assertLive.match((await timeout.json()).error, /timed out after 60 seconds/);
+} finally {
+  globalThis.setTimeout = savedSetTimeout;
+}

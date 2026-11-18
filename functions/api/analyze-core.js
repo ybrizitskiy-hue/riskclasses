@@ -16,6 +16,7 @@ import {
   parseCompetitionRows,
 } from '../lib/input-contract.js';
 
+const ANALYSIS_DEADLINE_MS = 60_000;
 const MAX_IMAGES = 4;
 const MAX_TEXT_CHARS = 50000;
 
@@ -79,6 +80,22 @@ const CLASSIFIER_SCHEMA = {
 };
 
 export async function onRequestPost(context) {
+  const controller = new AbortController();
+  let timer;
+  const timeout = new Promise(resolve => {
+    timer = setTimeout(() => {
+      resolve(json({ error: 'Analysis timed out after 60 seconds. Run the analysis again.' }, 504));
+      controller.abort();
+    }, ANALYSIS_DEADLINE_MS);
+  });
+  try {
+    return await Promise.race([analyze(context, controller.signal), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function analyze(context, signal) {
   if (!context.env.RISK_RULES || typeof context.env.RISK_RULES.get !== 'function') {
     return json({ error: 'RISK_RULES KV binding is not configured.' }, 503);
   }
@@ -131,6 +148,7 @@ export async function onRequestPost(context) {
       routingMode,
       telemetryCalls,
       aiSessionId,
+      signal,
     );
     if (!extraction.ok) return json({ error: extraction.error }, extraction.status || 502);
     rows = extraction.result.rows || [];
@@ -144,7 +162,7 @@ export async function onRequestPost(context) {
 
   const runtimeIndex = buildRuntimeIndex(rulesPayload);
   const esports = rows.filter(row => isEsportsSport(row.sport));
-  const { evidence, searches } = await collectEsportsEvidence(context.env, esports);
+  const { evidence, searches } = await collectEsportsEvidence(context.env, esports, signal);
   const esportsIndexes = new Set(esports.map(row => row.inputIndex));
   const evidenceByIndex = new Map(evidence.flatMap(group => group.inputIndexes.map(index => [index, group.sources])));
   const finalByIndex = new Map();
@@ -180,6 +198,7 @@ export async function onRequestPost(context) {
       reasoning: effortFor(reasoningConfig, routingMode, 'primary'),
       stage: `${routingMode}-primary`,
       esportsEvidence: evidence,
+      signal,
       telemetryCalls,
       aiSessionId,
     });
@@ -202,6 +221,7 @@ export async function onRequestPost(context) {
           reasoning: effortFor(reasoningConfig, routingMode, 'research'),
           stage: `${routingMode}-research`,
           esportsEvidence: evidence,
+          signal,
           telemetryCalls,
           aiSessionId,
         });
@@ -230,6 +250,7 @@ export async function onRequestPost(context) {
           reasoning: effortFor(reasoningConfig, routingMode, 'escalation'),
           stage: `${routingMode}-escalation`,
           esportsEvidence: evidence,
+          signal,
           telemetryCalls,
           aiSessionId,
         });
@@ -308,7 +329,7 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: corsHeaders() });
 }
 
-async function extractRowsFromImages(env, providerConfig, profile, images, reasoning, routingMode, telemetryCalls, aiSessionId) {
+async function extractRowsFromImages(env, providerConfig, profile, images, reasoning, routingMode, telemetryCalls, aiSessionId, signal) {
   const input = [
     {
       role: 'developer',
@@ -338,12 +359,13 @@ async function extractRowsFromImages(env, providerConfig, profile, images, reaso
     useWeb: false,
     promptCacheKey: 'riskclasses-row-extraction-v3',
     sessionId: aiSessionId,
+    signal,
   });
   if (result.telemetry) telemetryCalls.push(result.telemetry);
   return result;
 }
 
-async function classifyWithProfile({ env, providerConfig, profile, rows, rules, reasoning, stage, telemetryCalls, aiSessionId, esportsEvidence }) {
+async function classifyWithProfile({ env, providerConfig, profile, rows, rules, reasoning, stage, telemetryCalls, aiSessionId, esportsEvidence, signal }) {
   const externalSearch = usesExternalSearch(profile);
   const indexes = new Set(rows.map(row => row.inputIndex));
   const evidence = esportsEvidence.map(group => ({
@@ -381,6 +403,7 @@ async function classifyWithProfile({ env, providerConfig, profile, rows, rules, 
     useWeb: !externalSearch,
     promptCacheKey: `riskclasses-json-authority-v3-${rules.version || 'rules'}-${providerConfig.version || 'providers'}-${profile.id}-classifier`,
     sessionId: aiSessionId,
+    signal,
   });
   if (result.telemetry) telemetryCalls.push(result.telemetry);
   return result;

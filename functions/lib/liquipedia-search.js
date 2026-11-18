@@ -9,14 +9,15 @@ export function usesExternalSearch(profile) {
     && profile.capabilities?.webSearch === true;
 }
 
-export async function searchLiquipedia(env, query) {
+export async function searchLiquipedia(env, query, signal) {
   const key = String(env?.TAVILY_API_KEY || '').trim();
   if (!key) return { sources: [], error: 'TAVILY_API_KEY is not configured.' };
+  const deadline = AbortSignal.timeout(5000);
   try {
     const response = await globalThis.fetch(SEARCH_ENDPOINT, {
       method: 'POST',
       redirect: 'manual',
-      signal: AbortSignal.timeout(5000),
+      signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
       headers: { 'authorization': `Bearer ${key}`, 'content-type': 'application/json' },
       body: JSON.stringify({
         query: String(query).trim().slice(0, 300),
@@ -53,7 +54,7 @@ function tournamentTitle(title) {
   return title.replace(/\s*[-–|]\s*Liquipedia.*$/i, '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-export async function collectEsportsEvidence(env, rows) {
+export async function collectEsportsEvidence(env, rows, signal) {
   if (!String(env?.TAVILY_API_KEY || '').trim()) return { evidence: [], searches: 0 };
 
   const lookups = new Map();
@@ -71,8 +72,9 @@ export async function collectEsportsEvidence(env, rows) {
   const pending = [...lookups.values()];
   const parallelSearches = 3;
   for (let offset = 0; offset < pending.length; offset += parallelSearches) {
+    signal?.throwIfAborted();
     const batch = pending.slice(offset, offset + parallelSearches);
-    const results = await Promise.all(batch.map(lookup => searchLiquipedia(env, lookup.query)));
+    const results = await Promise.all(batch.map(lookup => searchLiquipedia(env, lookup.query, signal)));
     for (const [index, { sources }] of results.entries()) {
       const { indexes, competition } = batch[index];
       const exact = sources.filter(source => tournamentTitle(source.title) === tournamentTitle(competition));
