@@ -161,6 +161,7 @@ function startProgress() {
     { at: 2500, width: 43, label: 'Applying approved risk rules…', active: 1 },
     { at: 6500, width: 68, label: 'Researching uncertain rows only…', active: 2 },
     { at: 11000, width: 86, label: 'Validating brand confidence…', active: 3 },
+    { at: 30000, width: 90, label: 'Provider response is delayed; automatic retries are enabled…', active: 3 },
   ];
   const tick = () => {
     const elapsed = Date.now() - state.startedAt;
@@ -260,7 +261,7 @@ function showLocalWarning(message) {
   els.resultsCard.classList.remove('hidden');
 }
 
-const ANALYSIS_REQUEST_DEADLINE_MS = 65_000;
+const ANALYSIS_REQUEST_DEADLINE_MS = 170_000;
 
 async function analyze() {
   if (state.busy) return;
@@ -291,7 +292,7 @@ async function analyze() {
   } catch (error) {
     stopProgress(false);
     showLocalWarning(deadline.aborted
-      ? 'Analysis timed out after 65 seconds. Run the analysis again.'
+      ? 'Analysis timed out after 170 seconds. Run the analysis again.'
       : error.message || 'Analysis failed.');
   } finally {
     state.busy = false;

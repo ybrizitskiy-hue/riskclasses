@@ -5,8 +5,7 @@ const ESPORT = /^(?:e[- ]?sports?(?:\s*(?:[-:/]\s*.+|\(.+\)))?|dota\s*2|counter[
 export function usesExternalSearch(profile) {
   return profile?.id === 'compatible-4'
     && profile.protocol === 'chat-completions'
-    && profile.webSearchMode === 'native'
-    && profile.capabilities?.webSearch === true;
+    && profile.webSearchMode === 'native';
 }
 
 export async function searchLiquipedia(env, query, signal) {

@@ -77,6 +77,8 @@ Each profile contains:
 
 The provider adapter only sends optional API fields that the profile declares as supported. Generic Chat Completions profiles do not receive the OpenAI Responses `web_search` tool. If a classification needs current research and the primary profile has no compatible web-search capability, it can set `needsEscalation` and the configured research/escalation provider can review it.
 
+Compatible provider 4 disables its native Web Search capability when configured for Chat Completions with search mode `native`. The app still uses Tavily for esports, then passes the retrieved Liquipedia evidence to DeepSeek in the prompt; it does not send a native search tool.
+
 ### Managed custom-provider addresses
 
 For an OpenAI-compatible provider that is not built into Cloudflare:
