@@ -2,6 +2,27 @@
 
 ## Current checkpoint — 2026-11-18
 
+- Provider timeout retry and Tavily-only search changes are in PR #26,
+  `codex/provider4-timeout-retries`, based on `f5264d8ac35cf853b42dedbefffaed1388175219`.
+  Source commit `51aeb8b928439cf253487f895f0f601580b8f97d` passed the local PR
+  verification suite and GitHub's `PR verification gate`, `Regression tests`,
+  and `Risk Class smoke tests` before this handoff update.
+- Provider attempts have a 30-second deadline and retry up to three times. The
+  analysis/browser deadlines are 160/170 seconds. Compatible provider 4's native
+  Web Search capability is disabled for its Chat Completions/native profile;
+  Tavily still searches Liquipedia and DeepSeek receives the retrieved evidence.
+- Production was not changed. The active Pages version and live provider/KV
+  configuration could not be captured in this background session because the
+  Wrangler CLI/login and authenticated Cloudflare Admin API are unavailable.
+  The planned runtime difference is only provider 4's native Web Search flag;
+  compare the actual settings before promotion. Rollback source is
+  `f5264d8ac35cf853b42dedbefffaed1388175219`.
+- Next action: capture the active Pages version and runtime settings, compare
+  them with the intended flag change, then promote and run the authenticated
+  provider 4 Liquipedia check if the comparison is clean.
+
+## Previous checkpoint — 2026-11-18 (rules candidate)
+
 - Three-DAZN rules candidate prepared locally from the 2026-11-17 v28 bundle and
   the updated workbook. Branch `codex/three-dazn-brands` is based on
   `3a01222a8684acd077b0d15efc5530bb0cdbc734` (`origin/main`); changes are
