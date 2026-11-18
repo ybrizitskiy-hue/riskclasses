@@ -96,11 +96,13 @@ export function parseCompetitionRows(text) {
 
 export function resolveGlobalBrands(row) {
   const global = normalizeRcWithRecommendation(row?.global);
+  const retiredBrandKey = /^(?:dazn|quinnbet|nti(?:gaming)?)$/i;
   return {
-    ...Object.fromEntries(Object.entries(row || {}).filter(([key]) => !/^nti(?:gaming)?$/i.test(key))),
+    ...Object.fromEntries(Object.entries(row || {}).filter(([key]) => !retiredBrandKey.test(key))),
     global,
-    dazn: resolveBrand(row?.dazn, global),
-    quinnbet: resolveBrand(row?.quinnbet, global),
+    daznEs: resolveBrand(row?.daznEs, global),
+    daznDe: resolveBrand(row?.daznDe, global),
+    daznUk: resolveBrand(row?.daznUk, global),
   };
 }
 
@@ -161,11 +163,12 @@ function isGlobalInheritanceOnlyWarning(value) {
     /brand[- ]specific[^.]*(?:blank|missing|unspecified|not specified)[^.]*(?:inherit|appl|use|default|fallback)[^.]*global/,
     /(?:blank|missing|unspecified|not specified)[^.]*brand[^.]*(?:inherit|appl|use|default|fallback)[^.]*global/,
     /(?:inherit|appl|use|default|fallback)[^.]*global[^.]*(?:blank|missing|unspecified|not specified)[^.]*brand/,
-    /global[^.]*(?:appl|default|fallback|fills?)[^.]*unspecified[^.]*(?:brand|dazn|quinnbet)/,
-    /(?:dazn|quinnbet)[^.]*brand[- ]specific[^.]*(?:missing|blank|unspecified)[^.]*(?:global|inherit)/,
-    /\b(?:no|without)\s+(?:an?\s+)?(?:explicit\s+)?(?:dazn|quinnbet|brand)\s+(?:specific\s+)?(?:override|rule)[^.]*\bglobal\b/,
-    /\b(?:dazn|quinnbet|brand)[^.]*\binherits?\s+(?:the\s+)?global\b/,
-    /\bglobal\b[^.]*(?:fills?|defaults?\s+to|applies?\s+(?:for|to))[^.]*(?:dazn|quinnbet|unspecified\s+brands?)/,
+    /global[^.]*(?:appl|default|fallback|fills?)[^.]*unspecified[^.]*(?:brand|dazn)/,
+    /dazn[^.]*brand[- ]specific[^.]*(?:missing|blank|unspecified)[^.]*(?:global|inherit)/,
+    /\bno\s+explicit\s+(?:dazn(?:\s+(?:es|de|uk))?|brand)[^.]*\boverride\b[^.]*\bglobal\b[^.]*(?:appl|inherit|use)/,
+    /\b(?:no|without)\s+(?:an?\s+)?(?:explicit\s+)?(?:dazn|brand)\s+(?:specific\s+)?(?:override|rule)[^.]*\bglobal\b/,
+    /\b(?:dazn|brand)[^.]*\binherits?\s+(?:the\s+)?global\b/,
+    /\bglobal\b[^.]*(?:fills?|defaults?\s+to|applies?\s+(?:for|to))[^.]*(?:dazn|unspecified\s+brands?)/,
   ].some((pattern) => pattern.test(text));
 }
 

@@ -1,5 +1,6 @@
 import { callAiJson } from '../functions/lib/ai-client.js';
 import { validateProviderConfig } from '../functions/lib/provider-config.js';
+import { buildDeveloperPrompt, profileHasWebSearch } from '../functions/api/analyze-core.js';
 
 const schema = {
   type: 'object',
@@ -50,12 +51,28 @@ globalThis.fetch = async (url, init) => {
   return new Response(JSON.stringify({
     model: 'gpt-test',
     usage: { prompt_tokens: 20, completion_tokens: 4 },
-    choices: [{ message: { content: '{"status":"ok"}' } }],
+    choices: [{ message: { content: '{"status":"ok"}', annotations: [{ type: 'url_citation', url: 'https://liquipedia.net/dota2/Portal:Statistics/Tournament_prize_pools', title: 'Liquipedia' }] } }],
   }), { status: 200, headers: { 'content-type': 'application/json' } });
 };
 
 const noWebSentence = 'No web-search tool is available in this stage. If the answer materially depends on a current external fact that is not established by the canonical rules, make the best cautious answer you can and set needsEscalation=true so a research-capable or stronger configured provider can review it.';
 const input = [{ role: 'developer', content: [{ type: 'input_text', text: noWebSentence }] }, { role: 'user', content: [{ type: 'input_text', text: 'test' }] }];
+
+const promptRules = {
+  version: 'web-search-prompt-test',
+  instructions: 'For each esports event, verify the exact event and year on Liquipedia statistics, then cite the page used.',
+  knowledge: 'Liquipedia is the only permitted esports tier source.',
+  deterministicRules: { rules: [] },
+  resultPolicies: [],
+  resultTransforms: [],
+};
+const nativeSearchProfile = { ...baseProfile, webSearchMode: 'native' };
+assert(profileHasWebSearch(nativeSearchProfile), 'Chat Completions native search must be available to the classifier prompt');
+const nativeSearchPrompt = buildDeveloperPrompt(promptRules, { webAvailable: profileHasWebSearch(nativeSearchProfile) });
+assert(nativeSearchPrompt.includes('A web-search tool is available in this stage'), 'Native search prompt must describe the configured web-search capability');
+assert(nativeSearchPrompt.includes('Liquipedia'), 'Native search prompt must retain the exact esports source requirement');
+assert(!nativeSearchPrompt.includes('No web-search tool is available'), 'Native search prompt must not tell the model search is unavailable');
+assert(!profileHasWebSearch({ ...nativeSearchProfile, capabilities: { ...nativeSearchProfile.capabilities, webSearch: false } }), 'Disabled Chat search must remain unavailable to the classifier prompt');
 
 let profile = { ...baseProfile, webSearchMode: 'chat-tools' };
 let config = configFor(profile);
@@ -69,6 +86,7 @@ assert(captured.body.tool_choice === 'auto', 'chat-tools must set tool_choice au
 assert(JSON.stringify(captured.body.messages).includes('A server-side web-search capability is available'), 'Chat web search must override the stale no-web prompt');
 assert(!JSON.stringify(captured.body.messages).includes(noWebSentence), 'Stale no-web prompt must be removed for web-capable Chat providers');
 assert(result.telemetry.webSearchMode === 'chat-tools', 'Telemetry must report chat-tools adapter');
+assert(result.telemetry.webSearchSources?.[0]?.url === 'https://liquipedia.net/dota2/Portal:Statistics/Tournament_prize_pools', 'Chat Completions citation annotations must be retained as search evidence');
 
 for (const [mode, verify] of [
   ['chat-options', (body) => body.web_search_options?.search_context_size === 'low'],

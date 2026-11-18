@@ -362,6 +362,7 @@ function callTelemetry(response, profile, { reasoning, stage, useWeb, webSearchM
   const outputTokens = Number(usage.output_tokens ?? usage.completion_tokens ?? 0);
   const reasoningTokens = Number(usage.output_tokens_details?.reasoning_tokens ?? usage.completion_tokens_details?.reasoning_tokens ?? 0);
   const webSearchCalls = useWeb ? countWebSearchCalls(response) : 0;
+  const webSearchSources = useWeb ? extractWebSearchSources(response) : [];
   const price = profile?.pricing || {};
   const uncachedInput = Math.max(0, inputTokens - cachedInputTokens);
   const priced = [price.input, price.cached, price.output].every((value) => value != null && Number.isFinite(Number(value)));
@@ -390,6 +391,7 @@ function callTelemetry(response, profile, { reasoning, stage, useWeb, webSearchM
     outputTokens,
     reasoningTokens,
     webSearchCalls,
+    webSearchSources,
     estimatedUsd,
     endpoint,
   };
@@ -407,4 +409,30 @@ function countWebSearchCalls(response) {
     if (!count && Array.isArray(message.annotations) && message.annotations.some((item) => item?.type === 'url_citation')) count = 1;
   }
   return count;
+}
+
+function extractWebSearchSources(response) {
+  const sources = [];
+  const addAnnotations = (annotations) => {
+    for (const annotation of Array.isArray(annotations) ? annotations : []) {
+      if (!['url_citation', 'urlCitation'].includes(annotation?.type)) continue;
+      const url = String(annotation.url || annotation.uri || '').trim();
+      if (!url) continue;
+      const title = String(annotation.title || '').trim();
+      if (!sources.some((source) => source.url === url)) sources.push({ url, title });
+    }
+  };
+
+  for (const item of response?.output || []) {
+    addAnnotations(item?.annotations);
+    for (const part of item?.content || []) addAnnotations(part?.annotations);
+  }
+  for (const choice of response?.choices || []) {
+    const message = choice?.message || {};
+    addAnnotations(message.annotations);
+    if (Array.isArray(message.content)) {
+      for (const part of message.content) addAnnotations(part?.annotations);
+    }
+  }
+  return sources;
 }

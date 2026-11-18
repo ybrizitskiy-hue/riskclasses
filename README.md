@@ -1,5 +1,5 @@
 # Risk Class Analyst 
-Cloudflare Pages application for internal sportsbook risk-class classification. It accepts screenshots or pasted Sport + Competition rows and returns DAZN and Quinnbet results using the approved risk-class rules.
+Cloudflare Pages application for internal sportsbook risk-class classification. It accepts screenshots or pasted Sport + Competition rows and returns DAZN ES, DAZN DE and DAZN UK results using the approved risk-class rules.
 
 ## Security design
 
@@ -29,7 +29,7 @@ Protect the production hostname with Cloudflare Access for RX users as the outer
 }
 ```
 
-Older `custom-gpt-v2` values containing only `version`, `instructions` and `knowledge` are migrated automatically on first use. The deterministic engine contains matching mechanics only; its values, patterns and basis text are read from the KV bundle.
+Older `custom-gpt-v2` deterministic rows are migrated only when they already contain an explicit Global class. A legacy single-DAZN value without Global is preserved unchanged and fails validation until an administrator imports a complete three-brand bundle; it is never guessed into DAZN ES, DAZN DE or DAZN UK. The deterministic engine contains matching mechanics only; its values, patterns and basis text are read from the KV bundle.
 
 ## Rules Manager
 
@@ -43,7 +43,9 @@ Unlock **Admin** with the configured PIN and click **Manage rules**.
 6. Click **Publish globally**. New analyses use the new KV rules without a redeploy.
 7. Previous bundles are archived automatically; use **Rollback** to restore a snapshot.
 
-Rules Manager blocks malformed/truncated bundles, duplicate deterministic IDs, missing brands values, invalid RC values/regexes, and changes that break the active Tennis SRL H/H/H operational override.
+Rules Manager blocks malformed/truncated bundles, duplicate deterministic IDs, missing Global classifications, invalid brand overrides/regexes, and changes that break the active Tennis SRL H/H/H operational override.
+
+The result contract contains exactly three DAZN brands: ES, DE and UK. DAZN DE inherits Global. DAZN ES and DAZN UK also inherit Global unless the current approved rules explicitly provide a jurisdiction override.
 
 Up to 20 previous rules snapshots are retained under `rules-history:*`, indexed by `rules-history-index-v1`.
 
@@ -114,7 +116,7 @@ After an admin publishes a new provider config, every user uses the new global r
 
 ### Provider Test
 
-Each profile has a **Test** button that sends a small structured-output request through its configured transport. Managed custom providers synchronize their Base URL first when the admin token is available. Use Test before assigning a new provider to a production route.
+Each profile has a **Test** button that sends a small structured-output request through its configured transport. When Web Search is enabled, the test searches Liquipedia and passes only when the provider response includes an HTTPS citation from `liquipedia.net` or one of its subdomains. Managed custom providers synchronize their Base URL first when the admin token is available. Use Test before assigning a new provider to a production route.
 
 ## Globally managed routing mode
 
@@ -222,3 +224,4 @@ node tests/provider-manager-smoke.mjs
 ```
 
 GitHub Actions runs syntax checks and regression suites on pull requests and pushes to `main`. Coverage includes deterministic workflows, zero-model text classification, image extraction, global routing, confidence guards, PIN/session behavior, rules publish/history/rollback, direct OpenAI compatibility, Cloudflare REST routing, Responses/Chat Completions adapters, BYOK alias headers, provider pricing telemetry, and Cloudflare Custom Provider address create/update synchronization.
+
