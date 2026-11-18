@@ -1,4 +1,4 @@
-import { collectEsportsEvidence, usesExternalSearch } from '../lib/liquipedia-search.js';
+import { collectEsportsEvidence, isEsportsSport, usesExternalSearch } from '../lib/liquipedia-search.js';
 import { buildRuntimeIndex, classifyDeterministic } from '../lib/deterministic.js';
 import { loadCurrentRulesBundle, validateRulesBundle } from '../lib/rules-bundle.js';
 import {
@@ -143,14 +143,22 @@ export async function onRequestPost(context) {
   rows = decorateInputRows(rows);
 
   const runtimeIndex = buildRuntimeIndex(rulesPayload);
+  const esports = rows.filter(row => isEsportsSport(row.sport));
+  const { evidence, searches } = await collectEsportsEvidence(context.env, esports);
+  const esportsIndexes = new Set(esports.map(row => row.inputIndex));
+  const evidenceByIndex = new Map(evidence.flatMap(group => group.inputIndexes.map(index => [index, group.sources])));
   const finalByIndex = new Map();
   const unresolved = [];
   let deterministicCount = 0;
 
   for (const row of rows) {
+    const sources = evidenceByIndex.get(row.inputIndex);
+    if (esportsIndexes.has(row.inputIndex) && !sources) continue;
     const deterministic = classifyDeterministic(row, runtimeIndex);
     if (deterministic) {
-      finalByIndex.set(row.inputIndex, enforceResultPolicy({ ...deterministic, inputIndex: row.inputIndex }, row, rulesPayload.resultPolicies));
+      const result = { ...deterministic, inputIndex: row.inputIndex };
+      if (sources) result.sources = sources.map(source => source.url);
+      finalByIndex.set(row.inputIndex, enforceResultPolicy(result, row, rulesPayload.resultPolicies));
       deterministicCount += 1;
     } else {
       unresolved.push(row);
@@ -171,6 +179,7 @@ export async function onRequestPost(context) {
       rules: rulesPayload,
       reasoning: effortFor(reasoningConfig, routingMode, 'primary'),
       stage: `${routingMode}-primary`,
+      esportsEvidence: evidence,
       telemetryCalls,
       aiSessionId,
     });
@@ -192,6 +201,7 @@ export async function onRequestPost(context) {
           rules: rulesPayload,
           reasoning: effortFor(reasoningConfig, routingMode, 'research'),
           stage: `${routingMode}-research`,
+          esportsEvidence: evidence,
           telemetryCalls,
           aiSessionId,
         });
@@ -219,6 +229,7 @@ export async function onRequestPost(context) {
           rules: rulesPayload,
           reasoning: effortFor(reasoningConfig, routingMode, 'escalation'),
           stage: `${routingMode}-escalation`,
+          esportsEvidence: evidence,
           telemetryCalls,
           aiSessionId,
         });
@@ -243,7 +254,16 @@ export async function onRequestPost(context) {
 
   const finalRows = rows.map((input) => {
     const result = finalByIndex.get(input.inputIndex);
-    if (result) return stripInternal(result, input, rulesPayload.resultPolicies);
+    const esportsRow = esportsIndexes.has(input.inputIndex);
+    const sources = evidenceByIndex.get(input.inputIndex) || [];
+    if (result && !esportsRow) return stripInternal(result, input, rulesPayload.resultPolicies);
+    if (result && Array.isArray(result.sources)) {
+      const citations = sources.filter(source => result.sources.includes(source.url));
+      if (citations.length) return stripInternal({ ...result, sources: citations.map(source => source.url) }, input, rulesPayload.resultPolicies);
+    }
+    const reason = esportsRow
+      ? 'No exact Liquipedia tournament citation was verified.'
+      : 'No classification result returned.';
     return {
       sport: input.sport,
       competition: input.competition,
@@ -252,12 +272,12 @@ export async function onRequestPost(context) {
       daznEs: 'Manual check / missing rule',
       daznDe: 'Manual check / missing rule',
       daznUk: 'Manual check / missing rule',
-      basis: 'No classification result returned',
+      basis: reason,
       confidence: 'Low',
       sources: ['Risk Class guide'],
       manualCheck: true,
       manualCheckType: 'Yes',
-      manualCheckReason: 'No classification result returned.',
+      manualCheckReason: reason,
     };
   });
 
@@ -273,6 +293,7 @@ export async function onRequestPost(context) {
     reasoningConfigVersion: reasoningConfig.version,
   });
 
+  telemetry.webSearchCalls += searches;
   return json({
     rows: finalRows,
     warnings,
@@ -322,9 +343,12 @@ async function extractRowsFromImages(env, providerConfig, profile, images, reaso
   return result;
 }
 
-async function classifyWithProfile({ env, providerConfig, profile, rows, rules, reasoning, stage, telemetryCalls, aiSessionId }) {
+async function classifyWithProfile({ env, providerConfig, profile, rows, rules, reasoning, stage, telemetryCalls, aiSessionId, esportsEvidence }) {
   const externalSearch = usesExternalSearch(profile);
-  const evidence = externalSearch && stage.endsWith('-research') ? await collectEsportsEvidence(env, rows) : [];
+  const indexes = new Set(rows.map(row => row.inputIndex));
+  const evidence = esportsEvidence.map(group => ({
+    ...group, inputIndexes: group.inputIndexes.filter(index => indexes.has(index)),
+  })).filter(group => group.inputIndexes.length);
   const webAvailable = profileHasWebSearch(profile) && !externalSearch;
   const developerPrompt = buildDeveloperPrompt(rules, { webAvailable });
   const compactRows = rows.map(({
