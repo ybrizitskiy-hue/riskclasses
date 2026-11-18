@@ -403,7 +403,10 @@
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) throw new Error(data.error || 'Provider test failed.');
       const syncText = data.sync?.changed ? ' · address synchronized' : '';
-      const webText = data.webSearchRequested ? ` · web adapter ${data.webSearchMode || 'enabled'}` : '';
+      const webSource = data.webSearchSources?.[0]?.url;
+      const webText = data.webSearchRequested
+        ? ` · Liquipedia search verified (${data.webSearchMode || 'enabled'})${webSource ? ` · ${webSource}` : ''}`
+        : '';
       result.textContent = `✓ Connection + JSON output passed${syncText}${webText} · ${data.endpoint || endpointPreview(draft.profiles[index])}`;
     } catch (error) {
       result.textContent = `✕ ${error.message || 'Provider test failed.'}`;

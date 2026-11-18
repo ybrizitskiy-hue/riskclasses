@@ -1,0 +1,81 @@
+name: PR verification
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verification:
+    name: PR verification gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax checks
+        run: |
+          node --check app.js
+          node --check routing.js
+          node --check rules-manager.js
+          node --check provider-manager.js
+          node --check reasoning-manager.js
+          node --check provider-badge.js
+          node --check functions/api/analyze.js
+          node --check functions/api/analyze-core.js
+          node --check functions/api/admin.js
+          node --check functions/api/rules.js
+          node --check functions/api/providers.js
+          node --check functions/api/reasoning.js
+          node --check functions/api/_middleware.js
+          node --check functions/api/meta.js
+          node --check functions/lib/admin.js
+          node --check functions/lib/ai-client.js
+          node --check functions/lib/provider-config.js
+          node --check functions/lib/reasoning-config.js
+          node --check functions/lib/cloudflare-provider-admin.js
+          node --check functions/lib/deterministic.js
+          node --check functions/lib/result-policy.js
+          node --check functions/lib/input-contract.js
+          node --check functions/lib/rules-bundle.js
+          node --check tests/chat-web-search-smoke.mjs
+          node --check tests/prompt-cache-key-smoke.mjs
+          node --check tests/reasoning-config-smoke.mjs
+          node --check tests/reasoning-routing-smoke.mjs
+          node --check tests/event-id-global-smoke.mjs
+          node --check tests/event-id-analyze-smoke.mjs
+          node --check tests/provider-tennis-round-smoke.mjs
+          node --check tests/rules-manager-smoke.mjs
+          node --check tests/routing-smoke.mjs
+      - name: Routing regression smoke tests
+        run: node tests/routing-smoke.mjs
+      - name: Event ID and Global inheritance smoke tests
+        run: node tests/event-id-global-smoke.mjs
+      - name: Event ID analysis pipeline smoke tests
+        run: node tests/event-id-analyze-smoke.mjs
+      - name: JSON-owned Tennis and review-policy smoke tests
+        run: node tests/provider-tennis-round-smoke.mjs
+      - name: Admin gate smoke tests
+        run: node tests/admin-gate-smoke.mjs
+      - name: Rules manager smoke tests
+        run: node tests/rules-manager-smoke.mjs
+      - name: Provider manager smoke tests
+        run: node tests/provider-manager-smoke.mjs
+      - name: Chat web search smoke tests
+        run: node tests/chat-web-search-smoke.mjs
+      - name: Prompt cache key smoke tests
+        run: node tests/prompt-cache-key-smoke.mjs
+      - name: Reasoning configuration smoke tests
+        run: node tests/reasoning-config-smoke.mjs
+      - name: Reasoning routing smoke tests
+        run: node tests/reasoning-routing-smoke.mjs
+      - name: Provider badge browser smoke tests
+        run: node tests/provider-badge-browser-smoke.mjs
+      - name: Provider panel stability smoke tests
+        run: node tests/provider-panel-stability-smoke.mjs
+
+      - name: Active brand regression
+        run: node tests/active-brands-smoke.mjs
+

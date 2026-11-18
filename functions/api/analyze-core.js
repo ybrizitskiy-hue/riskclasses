@@ -51,7 +51,7 @@ const CLASSIFIER_SCHEMA = {
         type: 'object',
         additionalProperties: false,
         required: [
-          'inputIndex', 'sport', 'competition', 'global', 'dazn', 'quinnbet', 'basis',
+          'inputIndex', 'sport', 'competition', 'global', 'daznEs', 'daznDe', 'daznUk', 'basis',
           'confidence', 'sources', 'manualCheck', 'manualCheckType', 'manualCheckReason', 'needsEscalation', 'escalationReason'
         ],
         properties: {
@@ -59,8 +59,9 @@ const CLASSIFIER_SCHEMA = {
           sport: { type: 'string' },
           competition: { type: 'string' },
           global: { type: 'string', enum: ['', 'RC A', 'RC B', 'RC C', 'RC D', 'RC E', 'RC F', 'RC G', 'RC H', 'RC I', 'RC A rec.', 'RC B rec.', 'RC C rec.', 'RC D rec.', 'RC E rec.', 'RC F rec.', 'RC G rec.', 'RC H rec.', 'RC I rec.'] },
-          dazn: { type: 'string' },
-          quinnbet: { type: 'string' },
+          daznEs: { type: 'string' },
+          daznDe: { type: 'string' },
+          daznUk: { type: 'string' },
           basis: { type: 'string' },
           confidence: { type: 'string', enum: ['High', 'Medium', 'Low'] },
           sources: { type: 'array', items: { type: 'string' } },
@@ -246,8 +247,10 @@ export async function onRequestPost(context) {
       sport: input.sport,
       competition: input.competition,
       competitionId: input.competitionId,
-      dazn: 'Manual check / missing rule',
-      quinnbet: 'Manual check / missing rule',
+      global: '',
+      daznEs: 'Manual check / missing rule',
+      daznDe: 'Manual check / missing rule',
+      daznUk: 'Manual check / missing rule',
       basis: 'No classification result returned',
       confidence: 'Low',
       sources: ['Risk Class guide'],
@@ -319,7 +322,7 @@ async function extractRowsFromImages(env, providerConfig, profile, images, reaso
 }
 
 async function classifyWithProfile({ env, providerConfig, profile, rows, rules, reasoning, stage, telemetryCalls, aiSessionId }) {
-  const webAvailable = Boolean(profile?.capabilities?.webSearch && profile?.protocol === 'responses');
+  const webAvailable = profileHasWebSearch(profile);
   const developerPrompt = buildDeveloperPrompt(rules, { webAvailable });
   const compactRows = rows.map(({
     inputIndex,
@@ -356,7 +359,11 @@ async function classifyWithProfile({ env, providerConfig, profile, rows, rules, 
   return result;
 }
 
-function buildDeveloperPrompt(rules, { webAvailable }) {
+export function profileHasWebSearch(profile) {
+  return Boolean(profile?.capabilities?.webSearch);
+}
+
+export function buildDeveloperPrompt(rules, { webAvailable }) {
   const structuredRules = JSON.stringify({
     deterministicRules: rules.deterministicRules || {},
     resultPolicies: Array.isArray(rules.resultPolicies) ? rules.resultPolicies : [],
@@ -374,7 +381,7 @@ ${rules.knowledge}
 ${structuredRules}
 
 --- WEBSITE ROUTING CONTRACT (HARD) ---
-The managed JSON above is the sole sportsbook rule authority. These rows were not resolved by deterministicRules.rules from that JSON, so classify them using the same managed instructions and knowledge. Application code does not supply provider-specific Tennis classes, SRL classes, round/stage exceptions, sport matrices, or other fallback RC mappings. Return only structured output. Keep inputIndex unchanged and preserve sport/competition text exactly. Competition ID is provider context only: IDs starting BG are Betgenius, IDs starting DB are Databet, and IDs starting U are Betradar. Always return Global/base plus DAZN and Quinnbet. A blank or Same as Global brand value inherits the resolved Global value exactly; do not create a missing-rule warning solely because a brand override is absent. Only use Manual check / missing rule when neither managed Global nor a managed brand-specific value can be established. Follow every review label, Stage rule, confidence exception, operational exception, outright adjustment and brand mapping exactly as defined in the managed JSON. ${researchContract} Never invent brand overrides. Set needsEscalation=true only when material classification uncertainty remains after applying the managed JSON.`;
+The managed JSON above is the sole sportsbook rule authority. These rows were not resolved by deterministicRules.rules from that JSON, so classify them using the same managed instructions and knowledge. Application code does not supply provider-specific Tennis classes, SRL classes, round/stage exceptions, sport matrices, or other fallback RC mappings. Return only structured output. Keep inputIndex unchanged and preserve sport/competition text exactly. Competition ID is provider context only: IDs starting BG are Betgenius, IDs starting DB are Databet, and IDs starting U are Betradar. Always return the internal Global/base plus exactly three DAZN values: daznEs (DAZN ES), daznDe (DAZN DE), and daznUk (DAZN UK). Never return Quinnbet or another brand. DAZN DE follows Global unless a future approved rule explicitly overrides it. A blank or Same as Global brand value inherits the resolved Global value exactly; do not create a missing-rule warning solely because a brand override is absent. Only use Manual check / missing rule when neither managed Global nor a managed brand-specific value can be established. Follow every review label, Stage rule, confidence exception, operational exception, outright adjustment and brand mapping exactly as defined in the managed JSON. ${researchContract} Never invent brand overrides. Set needsEscalation=true only when material classification uncertainty remains after applying the managed JSON.`;
 }
 
 
@@ -384,8 +391,10 @@ function stripInternal(row, input, policies = []) {
     sport: input.sport,
     competition: input.competition,
     competitionId: input.competitionId,
-    dazn: final.dazn,
-    quinnbet: final.quinnbet,
+    global: final.global,
+    daznEs: final.daznEs,
+    daznDe: final.daznDe,
+    daznUk: final.daznUk,
     basis: final.basis,
     confidence: final.confidence,
     sources: Array.isArray(final.sources) ? final.sources : [],

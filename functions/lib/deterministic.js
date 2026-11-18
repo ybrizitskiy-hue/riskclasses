@@ -1,4 +1,4 @@
-import { providerFromCompetitionId } from './input-contract.js';
+import { providerFromCompetitionId, resolveGlobalBrands } from './input-contract.js';
 
 export function buildRuntimeIndex(source = '') {
   const bundle = source && typeof source === 'object' && !Array.isArray(source) ? source : null;
@@ -58,8 +58,10 @@ function compileRules(rules) {
         any: compileList(match.any),
         all: compileList(match.all),
         none: compileList(match.none),
-        dazn: String(item.dazn || ''),
-        quinnbet: String(item.quinnbet || ''),
+        global: String(item.global || ''),
+        daznEs: String(item.daznEs || ''),
+        daznDe: String(item.daznDe || ''),
+        daznUk: String(item.daznUk || ''),
         basis: String(item.basis || ''),
         source: String(item.source || 'Risk Class guide'),
         confidence: String(item.confidence || 'High'),
@@ -137,9 +139,14 @@ function matches(rule, competition, dataProvider) {
 }
 
 function confirmed(rule) {
+  const brands = resolveGlobalBrands({
+    global: rule.global,
+    daznEs: rule.daznEs,
+    daznDe: rule.daznDe,
+    daznUk: rule.daznUk,
+  });
   return {
-    dazn: rule.dazn,
-    quinnbet: rule.quinnbet,
+    ...brands,
     basis: rule.basis,
     confidence: ['High', 'Medium', 'Low'].includes(rule.confidence) ? rule.confidence : 'High',
     sources: [rule.source || 'Risk Class guide'],
@@ -157,9 +164,10 @@ function applyTransforms(result, row, transforms) {
     if (!transformMatches(transform, row)) continue;
     current = {
       ...current,
-      dazn: mapRc(current.dazn, transform.brandMap),
-      quinnbet: mapRc(current.quinnbet, transform.brandMap),
       global: mapRc(current.global, transform.brandMap),
+      daznEs: mapRc(current.daznEs, transform.brandMap),
+      daznDe: mapRc(current.daznDe, transform.brandMap),
+      daznUk: mapRc(current.daznUk, transform.brandMap),
       basis: transform.basisSuffix
         ? `${String(current.basis || '').trim()}${transform.basisSuffix}`
         : current.basis,

@@ -16,7 +16,7 @@ const TEST_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: ['status'],
-  properties: { status: { type: 'string', enum: ['ok'] } },
+  properties: { status: { type: 'string', enum: ['ok', 'unavailable'] } },
 };
 
 export async function onRequestGet(context) {
@@ -62,13 +62,13 @@ export async function onRequestPost(context) {
 
   const webSearchRequested = Boolean(profile.capabilities?.webSearch);
   const input = [
-    { role: 'developer', content: [{ type: 'input_text', text: 'This is a connectivity and compatibility test. Return exactly the requested JSON object.' }] },
+    { role: 'developer', content: [{ type: 'input_text', text: 'This is a connectivity and compatibility test. Return exactly the requested JSON object. Never claim a search result unless the configured web-search capability returned it.' }] },
     {
       role: 'user',
       content: [{
         type: 'input_text',
         text: webSearchRequested
-          ? 'Use your configured web-search capability for one small current lookup, then return {"status":"ok"}.'
+          ? 'Use your configured web-search capability to search Liquipedia for its Dota 2 tournament prize-pool statistics page. Open a Liquipedia result and return {"status":"ok"} only if the search result is from liquipedia.net; otherwise return {"status":"unavailable"}.'
           : 'Return {"status":"ok"}.',
       }],
     },
@@ -86,7 +86,35 @@ export async function onRequestPost(context) {
     promptCacheKey: '',
     sessionId: newAiSessionId(),
   });
-  if (!result.ok || result.result?.status !== 'ok') return json({ ok: false, error: result.error || 'Provider returned an unexpected test result.', telemetry: result.telemetry || null, sync }, result.status || 502);
+  if (!result.ok) return json({ ok: false, error: result.error || 'Provider returned an unexpected test result.', telemetry: result.telemetry || null, sync }, result.status || 502);
+  const webSearchMode = webSearchRequested
+    ? (profile.webSearchMode || (profile.protocol === 'chat-completions' ? 'chat-tools' : 'responses'))
+    : 'disabled';
+  if (result.result?.status !== 'ok') {
+    return json({
+      ok: false,
+      error: webSearchRequested
+        ? 'Provider could not verify an HTTPS Liquipedia source. Web search is not verified.'
+        : 'Provider returned an unexpected test result.',
+      telemetry: result.telemetry || null,
+      sync,
+      webSearchRequested,
+      webSearchVerified: false,
+      webSearchMode,
+    }, 502);
+  }
+  const webSearchSources = webSearchRequested ? liquipediaSearchSources(result.telemetry) : [];
+  if (webSearchRequested && webSearchSources.length === 0) {
+    return json({
+      ok: false,
+      error: 'The provider returned structured output, but no HTTPS Liquipedia search citation was received. Web search is not verified.',
+      telemetry: result.telemetry || null,
+      sync,
+      webSearchRequested: true,
+      webSearchVerified: false,
+      webSearchMode,
+    }, 502);
+  }
   return json({
     ok: true,
     result: 'ok',
@@ -94,8 +122,24 @@ export async function onRequestPost(context) {
     telemetry: result.telemetry || null,
     sync,
     webSearchRequested,
-    webSearchMode: webSearchRequested ? (profile.webSearchMode || (profile.protocol === 'chat-completions' ? 'chat-tools' : 'responses')) : 'disabled',
+    webSearchVerified: webSearchRequested ? webSearchSources.length > 0 : false,
+    webSearchSources,
+    webSearchMode,
   });
+}
+
+function liquipediaSearchSources(telemetry) {
+  const sources = [];
+  for (const source of Array.isArray(telemetry?.webSearchSources) ? telemetry.webSearchSources : []) {
+    try {
+      const url = new URL(String(source?.url || ''));
+      if (url.protocol !== 'https:' || !(url.hostname === 'liquipedia.net' || url.hostname.endsWith('.liquipedia.net'))) continue;
+      if (!sources.some((item) => item.url === url.href)) {
+        sources.push({ url: url.href, title: String(source?.title || '').trim() });
+      }
+    } catch {}
+  }
+  return sources;
 }
 
 export async function onRequestPut(context) {

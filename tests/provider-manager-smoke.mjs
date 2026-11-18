@@ -8,7 +8,7 @@ import {
 } from '../functions/lib/provider-config.js';
 import { callAiJson, profileEndpoint } from '../functions/lib/ai-client.js';
 import { syncManagedCustomProviders } from '../functions/lib/cloudflare-provider-admin.js';
-import { onRequestGet, onRequestPut } from '../functions/api/providers.js';
+import { onRequestGet, onRequestPost, onRequestPut } from '../functions/api/providers.js';
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 if (!globalThis.btoa) globalThis.btoa = (value) => Buffer.from(value, 'binary').toString('base64');
@@ -199,7 +199,36 @@ assert(response.status === 200 && data.ok && data.config.cloudflare.gatewayId ==
 const stored = JSON.parse(await kv.get(PROVIDER_CONFIG_KEY));
 assert(stored.cloudflare.gatewayId === 'new-gateway', 'Published provider config must persist to KV');
 
-console.log('provider manager smoke tests passed (31 checks)');
+const webTestConfig = JSON.parse(JSON.stringify(chatConfig));
+webTestConfig.profiles[0].capabilities.webSearch = true;
+webTestConfig.profiles[0].webSearchMode = 'native';
+globalThis.fetch = async () => chatOkResponse();
+response = await onRequestPost(context('POST', { action:'test', profileId:'custom-chat', config:webTestConfig }, cookie, adminEnv));
+data = await response.json();
+assert(response.status === 502 && !data.ok && data.webSearchVerified === false, 'Structured output without an actual Liquipedia citation must fail the web-search test');
+
+globalThis.fetch = async () => chatSearchResponse('https://www.google.com/search?q=liquipedia');
+response = await onRequestPost(context('POST', { action:'test', profileId:'custom-chat', config:webTestConfig }, cookie, adminEnv));
+data = await response.json();
+assert(response.status === 502 && !data.ok, 'A citation from a non-Liquipedia host must not pass the web-search test');
+
+globalThis.fetch = async () => chatSearchResponse('http://liquipedia.net/dota2/Portal:Statistics/Tournament_prize_pools');
+response = await onRequestPost(context('POST', { action:'test', profileId:'custom-chat', config:webTestConfig }, cookie, adminEnv));
+data = await response.json();
+assert(response.status === 502 && !data.ok, 'A non-HTTPS Liquipedia citation must not pass the web-search test');
+
+globalThis.fetch = async () => chatSearchResponse('', 'unavailable');
+response = await onRequestPost(context('POST', { action:'test', profileId:'custom-chat', config:webTestConfig }, cookie, adminEnv));
+data = await response.json();
+assert(response.status === 502 && !data.ok && data.webSearchVerified === false && /not verified/i.test(data.error), 'Explicit unavailable status must fail with a clear unverified result');
+
+globalThis.fetch = async () => chatSearchResponse('https://liquipedia.net/dota2/Portal:Statistics/Tournament_prize_pools');
+response = await onRequestPost(context('POST', { action:'test', profileId:'custom-chat', config:webTestConfig }, cookie, adminEnv));
+data = await response.json();
+assert(response.status === 200 && data.ok && data.webSearchVerified, 'A returned HTTPS Liquipedia citation must verify provider web search');
+assert(data.webSearchSources[0]?.url === 'https://liquipedia.net/dota2/Portal:Statistics/Tournament_prize_pools', 'Verified test must return the cited Liquipedia URL');
+
+console.log('provider manager smoke tests passed (39 checks)');
 
 function context(method, body, cookieValue, env) {
   const headers = {};
@@ -214,6 +243,12 @@ function chatOkResponse() {
   return new Response(JSON.stringify({
     model:'alt-model', usage:{ prompt_tokens:50, completion_tokens:5 },
     choices:[{ message:{ content:'{"status":"ok"}' } }],
+  }), { status:200, headers:{'content-type':'application/json'} });
+}
+function chatSearchResponse(url, status = 'ok') {
+  return new Response(JSON.stringify({
+    model:'alt-model', usage:{ prompt_tokens:50, completion_tokens:5 },
+    choices:[{ message:{ content:JSON.stringify({ status }), annotations:url ? [{ type:'url_citation', url, title:'Liquipedia result' }] : [] } }],
   }), { status:200, headers:{'content-type':'application/json'} });
 }
 function assert(condition, message) { if (!condition) throw new Error(message); }

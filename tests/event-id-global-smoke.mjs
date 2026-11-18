@@ -27,18 +27,18 @@ assert(parseCompetitionRows('Sport;Competition;Event ID\nTennis;Example;BG-44')[
 assert(parseCompetitionRows('Sport\tCompetition\nGolf\tPGA Tour')[0].competitionId === '', 'Legacy two-column input must remain supported');
 assert(parseCompetitionRows('1\tTennis\tExample\tDB-9')[0].competitionId === 'DB-9', 'Row-number-prefixed input must retain ID');
 
-const inherited = resolveGlobalBrands({ global: 'Risk Class G', dazn: '', quinnbet: 'Same as Global' });
+const inherited = resolveGlobalBrands({ global: 'Risk Class G', daznEs: '', daznDe: 'Same as Global', daznUk: '' });
 assert(inherited.global === 'RC G', 'Global must normalize');
-assert(inherited.dazn === 'RC G' && inherited.quinnbet === 'RC G', 'Unspecified brands must inherit Global');
-assert(resolveGlobalBrands({global:'RC G', dazn:'RC F', quinnbet:''}).dazn === 'RC F', 'Explicit brand override must win');
-assert(!/rec\./i.test(`${inherited.dazn} ${inherited.quinnbet}`), 'Exact Global inheritance must not add rec.');
-const recommended = resolveGlobalBrands({ global: 'RC G rec.', dazn: '', quinnbet: 'Global' });
-assert(recommended.dazn === 'RC G rec.' && recommended.quinnbet === 'RC G rec.', 'A genuine recommended Global must propagate unchanged');
-const missing = resolveGlobalBrands({ global: '', dazn: '', quinnbet: '—' });
-assert(missing.dazn.includes('missing rule') && missing.quinnbet.includes('missing rule'), 'Missing Global and brand rule must remain missing');
+assert(inherited.daznEs === 'RC G' && inherited.daznDe === 'RC G' && inherited.daznUk === 'RC G', 'All unspecified DAZN brands must inherit Global');
+assert(resolveGlobalBrands({global:'RC G', daznEs:'RC F', daznDe:'', daznUk:''}).daznEs === 'RC F', 'Explicit brand override must win');
+assert(!/rec\./i.test(`${inherited.daznEs} ${inherited.daznDe} ${inherited.daznUk}`), 'Exact Global inheritance must not add rec.');
+const recommended = resolveGlobalBrands({ global: 'RC G rec.', daznEs: '', daznDe: 'Same as Global', daznUk: 'Global' });
+assert(recommended.daznEs === 'RC G rec.' && recommended.daznDe === 'RC G rec.' && recommended.daznUk === 'RC G rec.', 'A genuine recommended Global must propagate unchanged');
+const missing = resolveGlobalBrands({ global: '', daznEs: '', daznDe: '—', daznUk: '' });
+assert([missing.daznEs,missing.daznDe,missing.daznUk].every((v)=>v.includes('missing rule')), 'Missing Global and brand rules must remain missing');
 const warnings = filterGlobalInheritanceWarnings([
-  'No explicit Quinnbet override; Global applies.',
-  'DAZN inherits the Global value because no separate override exists.',
+  'No explicit DAZN ES override; Global applies.',
+  'DAZN DE inherits the Global value because no separate override exists.',
   'Official tournament level could not be verified.',
 ]);
 assert(warnings.length === 1 && warnings[0].startsWith('Official'), 'Inheritance-only warnings must be suppressed');
@@ -51,34 +51,34 @@ const validation = validateRulesBundle(bundle);
 assert(validation.valid, `Managed bundle should validate: ${validation.errors.join('; ')}`);
 const index = buildRuntimeIndex(bundle);
 const providerCases = [
-  ['U-1', 'ATP Challenger Example', 'RC G', 'RC F'],
-  ['BG-1', 'ATP Challenger Example Qualification', 'RC G', 'RC F'],
-  ['BG-2', 'ATP Challenger Example', 'RC G', 'RC G'],
-  ['DB-1', 'ATP Challenger Example', 'RC G', 'RC F'],
-  ['U-2', 'WTA 125 Example', 'RC G', 'RC F'],
-  ['BG-3', 'WTA 125 Example Qualifying', 'RC G', 'RC F'],
-  ['BG-4', 'WTA 125 Example', 'RC G', 'RC G'],
-  ['DB-2', 'WTA 125 Example', 'RC G', 'RC F'],
-  ['U-3', 'ATP 250 Example', 'RC E', 'RC E'],
-  ['BG-5', 'WTA 250 Example Q4', 'RC E', 'RC E'],
-  ['BG-6', 'ATP 250 Example', 'RC D', 'RC D'],
-  ['DB-3', 'WTA 250 Example', 'RC E', 'RC E'],
-  ['U-4', 'ATP 500 Example', 'RC E', 'RC E'],
-  ['BG-7', 'ATP Masters 1000 Example Qualifier', 'RC E', 'RC E'],
-  ['BG-8', 'Wimbledon', 'RC C', 'RC C'],
-  ['DB-4', 'U.S. Open', 'RC E', 'RC E'],
+  ['U-1', 'ATP Challenger Example', 'RC G'],
+  ['BG-1', 'ATP Challenger Example Qualification', 'RC G'],
+  ['BG-2', 'ATP Challenger Example', 'RC G'],
+  ['DB-1', 'ATP Challenger Example', 'RC G'],
+  ['U-2', 'WTA 125 Example', 'RC G'],
+  ['BG-3', 'WTA 125 Example Qualifying', 'RC G'],
+  ['BG-4', 'WTA 125 Example', 'RC G'],
+  ['DB-2', 'WTA 125 Example', 'RC G'],
+  ['U-3', 'ATP 250 Example', 'RC E'],
+  ['BG-5', 'WTA 250 Example Q4', 'RC E'],
+  ['BG-6', 'ATP 250 Example', 'RC D'],
+  ['DB-3', 'WTA 250 Example', 'RC E'],
+  ['U-4', 'ATP 500 Example', 'RC E'],
+  ['BG-7', 'ATP Masters 1000 Example Qualifier', 'RC E'],
+  ['BG-8', 'Wimbledon', 'RC C'],
+  ['DB-4', 'U.S. Open', 'RC E'],
 ];
-for (const [competitionId, competition, dazn, quinnbet] of providerCases) {
+for (const [competitionId, competition, global] of providerCases) {
   const result = classifyDeterministic({ sport: 'Tennis', competition, competitionId }, index);
   assert(result, `No managed provider rule for ${competitionId} / ${competition}`);
-  assert(result.dazn === dazn && result.quinnbet === quinnbet, `Wrong managed classes for ${competitionId}`);
+  assert(result.global === global && result.daznEs === global && result.daznDe === global && result.daznUk === global, `Wrong managed classes for ${competitionId}`);
 }
 
 const changed = structuredClone(bundle);
 const changedRule = changed.deterministicRules.rules.find((r) => r.id === 'tennis-bg-challenger-singles');
-changedRule.dazn = 'RC F'; changedRule.quinnbet = 'RC F';
+changedRule.daznEs = 'RC F';
 const changedResult = classifyDeterministic({ sport:'Tennis', competition:'ATP Challenger Example', competitionId:'BG-2' }, buildRuntimeIndex(changed));
-assert(changedResult.dazn === 'RC F' && changedResult.quinnbet === 'RC F', 'Changing managed JSON must change runtime result without code change');
+assert(changedResult.daznEs === 'RC F' && changedResult.daznDe === 'RC G' && changedResult.daznUk === 'RC G', 'Changing managed JSON must change only the selected brand without code change');
 
 const productionFiles = [
   '../functions/lib/deterministic.js',
@@ -95,10 +95,10 @@ assert(!existsSync(new URL('../functions/lib/provider-tennis-rules.js', import.m
 console.log(`event ID, Global inheritance and JSON-authority smoke tests passed (${checks} checks)`);
 
 function managedBundle() {
-  const provider = (id, providerName, all, none, dazn, quinnbet) => ({
+  const provider = (id, providerName, all, none, global) => ({
     id, sport:'tennis', providers:[providerName],
     match:{ any:[], all:[...all, `\\b(?:${providerName.toLowerCase()})\\b`], none },
-    dazn, quinnbet, basis:id, source:'Risk Class guide',
+    global, daznEs:'', daznDe:'Same as Global', daznUk:'', basis:id, source:'Risk Class guide',
   });
   const challenger='\\bchallengers?\\b';
   const wta125='\\bwta\\s*125(?:k)?\\b|\\b125k\\b';
@@ -107,22 +107,22 @@ function managedBundle() {
   const qual='\\b(qualification|qualifier|qualifying|quals?|q[1-4])\\b';
   const dbl='\\b(doubles?|mixed doubles|md|wd|xd)\\b';
   const rules=[
-    provider('tennis-br-challenger-singles','Betradar',[challenger],[dbl],'RC G','RC F'),
-    provider('tennis-bg-challenger-qual-singles','Betgenius',[challenger,qual],[dbl],'RC G','RC F'),
-    provider('tennis-bg-challenger-singles','Betgenius',[challenger],[qual,dbl],'RC G','RC G'),
-    provider('tennis-db-challenger-singles','Databet',[challenger],[dbl],'RC G','RC F'),
-    provider('tennis-br-wta125-singles','Betradar',[wta125],[dbl],'RC G','RC F'),
-    provider('tennis-bg-wta125-qual-singles','Betgenius',[wta125,qual],[dbl],'RC G','RC F'),
-    provider('tennis-bg-wta125-singles','Betgenius',[wta125],[qual,dbl],'RC G','RC G'),
-    provider('tennis-db-wta125-singles','Databet',[wta125],[dbl],'RC G','RC F'),
-    provider('tennis-br-250-singles','Betradar',[t250],[dbl],'RC E','RC E'),
-    provider('tennis-bg-250-qual-singles','Betgenius',[t250,qual],[dbl],'RC E','RC E'),
-    provider('tennis-bg-250-singles','Betgenius',[t250],[qual,dbl],'RC D','RC D'),
-    provider('tennis-db-250-singles','Databet',[t250],[dbl],'RC E','RC E'),
-    provider('tennis-br-500plus-singles','Betradar',[t500],[dbl],'RC E','RC E'),
-    provider('tennis-bg-500plus-qual-singles','Betgenius',[t500,qual],[dbl],'RC E','RC E'),
-    provider('tennis-bg-500plus-singles','Betgenius',[t500],[qual,dbl],'RC C','RC C'),
-    provider('tennis-db-500plus-singles','Databet',[t500],[dbl],'RC E','RC E'),
+    provider('tennis-br-challenger-singles','Betradar',[challenger],[dbl],'RC G'),
+    provider('tennis-bg-challenger-qual-singles','Betgenius',[challenger,qual],[dbl],'RC G'),
+    provider('tennis-bg-challenger-singles','Betgenius',[challenger],[qual,dbl],'RC G'),
+    provider('tennis-db-challenger-singles','Databet',[challenger],[dbl],'RC G'),
+    provider('tennis-br-wta125-singles','Betradar',[wta125],[dbl],'RC G'),
+    provider('tennis-bg-wta125-qual-singles','Betgenius',[wta125,qual],[dbl],'RC G'),
+    provider('tennis-bg-wta125-singles','Betgenius',[wta125],[qual,dbl],'RC G'),
+    provider('tennis-db-wta125-singles','Databet',[wta125],[dbl],'RC G'),
+    provider('tennis-br-250-singles','Betradar',[t250],[dbl],'RC E'),
+    provider('tennis-bg-250-qual-singles','Betgenius',[t250,qual],[dbl],'RC E'),
+    provider('tennis-bg-250-singles','Betgenius',[t250],[qual,dbl],'RC D'),
+    provider('tennis-db-250-singles','Databet',[t250],[dbl],'RC E'),
+    provider('tennis-br-500plus-singles','Betradar',[t500],[dbl],'RC E'),
+    provider('tennis-bg-500plus-qual-singles','Betgenius',[t500,qual],[dbl],'RC E'),
+    provider('tennis-bg-500plus-singles','Betgenius',[t500],[qual,dbl],'RC C'),
+    provider('tennis-db-500plus-singles','Databet',[t500],[dbl],'RC E'),
   ];
   return {
     schemaVersion:1, version:'json-authority-test',

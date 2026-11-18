@@ -9,24 +9,55 @@ const VALID_DATA_PROVIDERS = new Set(['Betradar', 'Betgenius', 'Databet']);
 // Backward-compatible export name for old callers/tests. It intentionally contains
 // no sportsbook mappings. The managed JSON is the only source of RC rules.
 export function baselineDeterministicRules() {
-  return { engineVersion: 2, rules: [] };
+  return { engineVersion: 3, rules: [] };
 }
 
 export function migrateLegacyBundle(value) {
   const source = unwrapBundle(value);
   if (!source || typeof source !== 'object') return null;
   const legacy = !source.schemaVersion && !source.deterministicRules;
+  const deterministicRules = source.deterministicRules || baselineDeterministicRules();
+  let safelyMigratable = true;
+  const rules = Array.isArray(deterministicRules.rules) ? deterministicRules.rules.map((item) => {
+    if (!item || typeof item !== 'object') return item;
+    const hasLegacyBrand = Object.hasOwn(item, 'dazn') || Object.hasOwn(item, 'quinnbet');
+    if (!hasLegacyBrand) return item;
+    // A legacy single-DAZN value has no reliable jurisdiction or Global meaning.
+    // Keep the source row untouched and block automatic persistence until an
+    // administrator imports an explicitly mapped three-brand bundle.
+    if (!String(item.global || '').trim()) {
+      safelyMigratable = false;
+      return item;
+    }
+    const global = String(item.global).trim();
+    const legacyDazn = String(item.dazn || '').trim();
+    const legacyQuinnbet = String(item.quinnbet || '').trim();
+    const hasCompleteNewBrands = ['daznEs', 'daznDe', 'daznUk'].every((key) => typeof item[key] === 'string');
+    if (!hasCompleteNewBrands && (legacyDazn !== global || legacyQuinnbet !== global)) {
+      safelyMigratable = false;
+      return item;
+    }
+    const migrated = {
+      ...item,
+      daznEs: item.daznEs ?? 'Same as Global',
+      daznDe: item.daznDe ?? 'Same as Global',
+      daznUk: item.daznUk ?? 'Same as Global',
+    };
+    delete migrated.dazn;
+    delete migrated.quinnbet;
+    return migrated;
+  }) : [];
   const bundle = {
     ...source,
     schemaVersion: Number(source.schemaVersion || RULES_SCHEMA_VERSION),
     version: String(source.version || 'unversioned').trim(),
     instructions: String(source.instructions || ''),
     knowledge: String(source.knowledge || ''),
-    deterministicRules: source.deterministicRules || baselineDeterministicRules(),
+    deterministicRules: { ...deterministicRules, rules },
     resultPolicies: Array.isArray(source.resultPolicies) ? source.resultPolicies : [],
     resultTransforms: Array.isArray(source.resultTransforms) ? source.resultTransforms : [],
   };
-  return { bundle, legacy };
+  return { bundle, legacy, safelyMigratable };
 }
 
 export function unwrapBundle(value) {
@@ -63,8 +94,10 @@ export function validateRulesBundle(value) {
     else if (ids.has(id)) errors.push(`Duplicate deterministic rule id: ${id}.`);
     else ids.add(id);
     if (!String(item.sport || '').trim()) errors.push(`${prefix}.sport is required.`);
-    validateRc(item.dazn, `${prefix}.dazn`, errors);
-    validateRc(item.quinnbet, `${prefix}.quinnbet`, errors);
+    validateRc(item.global, `${prefix}.global`, errors);
+    validateBrandValue(item.daznEs, `${prefix}.daznEs`, errors);
+    validateBrandValue(item.daznDe, `${prefix}.daznDe`, errors);
+    validateBrandValue(item.daznUk, `${prefix}.daznUk`, errors);
     if (!String(item.basis || '').trim()) errors.push(`${prefix}.basis is required.`);
     if (item.confidence != null && !['High', 'Medium', 'Low'].includes(item.confidence)) errors.push(`${prefix}.confidence must be High, Medium or Low when supplied.`);
     if (item.manualCheckType != null && typeof item.manualCheckType !== 'string') errors.push(`${prefix}.manualCheckType must be a string when supplied.`);
@@ -237,6 +270,16 @@ function validateRc(value, path, errors) {
   if (!VALID_RC.test(String(value || '').trim())) errors.push(`${path} must be one of RC A through RC I.`);
 }
 
+function validateBrandValue(value, path, errors) {
+  if (typeof value !== 'string') {
+    errors.push(`${path} must be a string value or Global inheritance token.`);
+    return;
+  }
+  const text = String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!text || ['-', 'global', 'same as global'].includes(text)) return;
+  validateRc(value, path, errors);
+}
+
 function safeJsonLength(value) {
   try { return JSON.stringify(value).length; } catch { return Number.MAX_SAFE_INTEGER; }
 }
@@ -299,7 +342,7 @@ export async function loadCurrentRulesBundle(kv, { migrateLegacy = true } = {}) 
   try { parsed = JSON.parse(raw); } catch { return null; }
   const migrated = migrateLegacyBundle(parsed);
   if (!migrated) return null;
-  if (migrated.legacy && migrateLegacy && typeof kv.put === 'function') {
+  if (migrated.legacy && migrated.safelyMigratable && migrateLegacy && typeof kv.put === 'function') {
     const next = {
       ...migrated.bundle,
       migratedAt: new Date().toISOString(),
@@ -348,7 +391,7 @@ export async function loadHistoryBundle(kv, key) {
     const raw = await kv.get(String(key));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    return unwrapBundle(parsed);
+    return migrateLegacyBundle(parsed)?.bundle || null;
   } catch {
     return null;
   }

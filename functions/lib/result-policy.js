@@ -2,7 +2,7 @@ import { resolveGlobalBrands } from './input-contract.js';
 
 export function enforceResultPolicy(row, input = row, policies = []) {
   const resolved = resolveGlobalBrands(row);
-  const values = [resolved?.dazn, resolved?.quinnbet].map((value) => String(value || ''));
+  const values = [resolved?.daznEs, resolved?.daznDe, resolved?.daznUk].map((value) => String(value || ''));
   const hasRec = values.some((value) => /\brec\./i.test(value));
   const hasMissing = values.some((value) => /manual check|missing rule/i.test(value));
   let confidence = ['High', 'Medium', 'Low'].includes(resolved?.confidence) ? resolved.confidence : 'Low';

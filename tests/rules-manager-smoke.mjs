@@ -1,13 +1,24 @@
-import { baselineDeterministicRules, diffRulesBundles, preparePublishedBundle, validateRulesBundle } from '../functions/lib/rules-bundle.js';
+import { baselineDeterministicRules, diffRulesBundles, loadHistoryBundle, migrateLegacyBundle, preparePublishedBundle, validateRulesBundle } from '../functions/lib/rules-bundle.js';
 let checks=0;
-const base={schemaVersion:1,version:'v1',instructions:`Rules JSON is sole authority. ${'Preserve managed rules. '.repeat(40)}`,knowledge:`Knowledge. ${'Managed sportsbook rule knowledge. '.repeat(150)}`,deterministicRules:{engineVersion:2,rules:[{id:'r1',sport:'golf',match:{any:['\\bpga tour\\b'],all:[],none:[]},dazn:'RC B',quinnbet:'RC B',basis:'managed',source:'Managed JSON'}]},resultPolicies:[],resultTransforms:[]};
+const base={schemaVersion:1,version:'v1',instructions:`Rules JSON is sole authority. ${'Preserve managed rules. '.repeat(40)}`,knowledge:`Knowledge. ${'Managed sportsbook rule knowledge. '.repeat(150)}`,deterministicRules:{engineVersion:2,rules:[{id:'r1',sport:'golf',match:{any:['\\bpga tour\\b'],all:[],none:[]},global:'RC B',daznEs:'',daznDe:'Same as Global',daznUk:'',basis:'managed',source:'Managed JSON'}]},resultPolicies:[],resultTransforms:[]};
 let v=validateRulesBundle(base); assert(v.valid,'Complete managed JSON must validate');
 assert(baselineDeterministicRules().rules.length===0,'Code baseline must have zero sportsbook mappings');
 const empty=structuredClone(base); empty.deterministicRules.rules=[]; v=validateRulesBundle(empty); assert(!v.valid&&v.errors.some(x=>x.includes('fallback RC mappings')),'Empty managed rules must fail rather than receive code fallbacks');
-const next=structuredClone(base); next.version='v2'; next.deterministicRules.rules[0].dazn='RC C'; next.resultPolicies=[{id:'p1',confidences:['High'],sports:['Tennis'],field:'competition',whenMissingPatterns:['\\bq[1-4]\\b'],manualCheck:true,manualCheckType:'Stage',reason:'Stage check'}];
+const next=structuredClone(base); next.version='v2'; next.deterministicRules.rules[0].daznEs='RC C'; next.resultPolicies=[{id:'p1',confidences:['High'],sports:['Tennis'],field:'competition',whenMissingPatterns:['\\bq[1-4]\\b'],manualCheck:true,manualCheckType:'Stage',reason:'Stage check'}];
 v=validateRulesBundle(next); assert(v.valid,'Managed resultPolicies must validate');
 const diff=diffRulesBundles(base,next); assert(diff.changed&&diff.deterministic.changed.includes('r1')&&diff.resultPoliciesChanged,'Diff must report rule and policy changes');
 const prepared=preparePublishedBundle(next,base); assert(prepared.schemaVersion===1&&prepared.version==='v2'&&prepared.updatedAt,'Publish preparation must preserve data and stamp update');
 const bad=structuredClone(next); bad.deterministicRules.rules[0].providers=['Betgenius']; v=validateRulesBundle(bad); assert(!v.valid&&v.errors.some(x=>x.includes('provider sentinel')),'Provider rule without legacy-safe sentinel must fail');
+const legacyPayload={schemaVersion:1,version:'old',instructions:base.instructions,knowledge:base.knowledge,deterministicRules:{engineVersion:2,rules:[{id:'old',sport:'golf',match:{any:['golf'],all:[],none:[]},dazn:'RC E',quinnbet:'RC C',basis:'legacy'}]}};
+const legacy=migrateLegacyBundle(legacyPayload);
+const old=legacy.bundle.deterministicRules.rules[0];
+assert(!legacy.safelyMigratable&&!Object.hasOwn(old,'global')&&!Object.hasOwn(old,'daznEs')&&old.dazn==='RC E'&&old.quinnbet==='RC C','Legacy DAZN/QB values without Global must stay unchanged for explicit review');
+assert(!validateRulesBundle(legacy.bundle).valid,'Unmapped legacy brands must fail closed until an administrator imports a three-brand bundle');
+const legacyWithGlobal=migrateLegacyBundle({schemaVersion:1,version:'old-global',instructions:base.instructions,knowledge:base.knowledge,deterministicRules:{engineVersion:2,rules:[{id:'old-global',sport:'golf',global:'RC B',match:{any:['golf'],all:[],none:[]},dazn:'RC E',quinnbet:'RC C',basis:'legacy'}]}});
+assert(!legacyWithGlobal.safelyMigratable&&legacyWithGlobal.bundle.deterministicRules.rules[0].dazn==='RC E','Legacy brand overrides that differ from Global must not be silently discarded');
+const rollbackSnapshot=await loadHistoryBundle({get:async()=>JSON.stringify(legacyWithGlobal.bundle)},'rules-history:1:legacy');
+assert(rollbackSnapshot.deterministicRules.rules[0].dazn==='RC E'&&rollbackSnapshot.deterministicRules.rules[0].quinnbet==='RC C'&&!validateRulesBundle(rollbackSnapshot).valid,'Ambiguous legacy rollback snapshots must retain original brand values and fail validation before restore');
+const legacyEqualGlobal=migrateLegacyBundle({schemaVersion:1,version:'old-equal',instructions:base.instructions,knowledge:base.knowledge,deterministicRules:{engineVersion:2,rules:[{id:'old-equal',sport:'golf',global:'RC B',match:{any:['golf'],all:[],none:[]},dazn:'RC B',quinnbet:'RC B',basis:'legacy'}]}}).bundle.deterministicRules.rules[0];
+assert(legacyEqualGlobal.global==='RC B'&&legacyEqualGlobal.daznEs==='Same as Global'&&legacyEqualGlobal.daznDe==='Same as Global'&&legacyEqualGlobal.daznUk==='Same as Global'&&!Object.hasOwn(legacyEqualGlobal,'quinnbet'),'Legacy brands equal to an explicit Global can be safely migrated to Global inheritance');
 console.log(`rules manager smoke tests passed (${checks} checks)`);
 function assert(v,m){checks++;if(!v)throw new Error(m);}
