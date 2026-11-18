@@ -25,14 +25,14 @@ export async function searchLiquipedia(env, query, signal) {
         include_domains: ['liquipedia.net'],
         include_domains_mode: 'restrict',
         auto_parameters: false,
-        max_results: 3,
+        max_results: 5,
       }),
     });
     if (!response.ok) return { sources: [], error: `Liquipedia search returned HTTP ${response.status}.` };
     const data = await response.json().catch(() => null);
     if (!Array.isArray(data?.results)) return { sources: [], error: 'Tavily returned an invalid search response.' };
     const sources = [];
-    for (const item of data.results.slice(0, 3)) {
+    for (const item of data.results.slice(0, 5)) {
       let url;
       try { url = new URL(item?.url); } catch { continue; }
       if (url.origin !== 'https://liquipedia.net' || url.username || url.password || url.pathname === '/') continue;
@@ -95,22 +95,32 @@ export async function collectEsportsEvidence(env, rows, signal) {
     if (!isEsportsSport(sport) || !competition) continue;
     const query = `${sport} ${competition} tournament tier`;
     const key = query.toLowerCase().replace(/\s+/g, ' ');
-    if (!lookups.has(key)) lookups.set(key, { indexes: [], competition, query });
+    if (!lookups.has(key)) lookups.set(key, { indexes: [], sport, competition, query });
     lookups.get(key).indexes.push(row.inputIndex);
   }
 
   const evidence = [];
   const pending = [...lookups.values()];
   const parallelSearches = 3;
+  let searches = 0;
   for (let offset = 0; offset < pending.length; offset += parallelSearches) {
     signal?.throwIfAborted();
     const batch = pending.slice(offset, offset + parallelSearches);
-    const results = await Promise.all(batch.map(lookup => searchLiquipedia(env, lookup.query, signal)));
-    for (const [index, { sources }] of results.entries()) {
-      const { indexes, competition } = batch[index];
-      const exact = sources.filter(source => sourceNamesTournament(source, competition));
-      if (exact.length) evidence.push({ inputIndexes: indexes, sources: exact });
+    const results = await Promise.all(batch.map(async lookup => {
+      searches += 1;
+      const initial = await searchLiquipedia(env, lookup.query, signal);
+      const exact = initial.sources.filter(source => sourceNamesTournament(source, lookup.competition));
+      if (exact.length) return exact;
+
+      signal?.throwIfAborted();
+      searches += 1;
+      const fallbackQuery = `${lookup.competition} ${lookup.sport} Liquipedia tournament tier`;
+      const fallback = await searchLiquipedia(env, fallbackQuery, signal);
+      return fallback.sources.filter(source => sourceNamesTournament(source, lookup.competition));
+    }));
+    for (const [index, sources] of results.entries()) {
+      if (sources.length) evidence.push({ inputIndexes: batch[index].indexes, sources });
     }
   }
-  return { evidence, searches: pending.length };
+  return { evidence, searches };
 }
