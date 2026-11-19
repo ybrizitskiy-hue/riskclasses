@@ -16,7 +16,7 @@ import {
   parseCompetitionRows,
 } from '../lib/input-contract.js';
 
-const ANALYSIS_DEADLINE_MS = 240_000;
+const ANALYSIS_DEADLINE_MS = 115_000;
 const MAX_IMAGES = 4;
 const MAX_TEXT_CHARS = 50000;
 
@@ -84,7 +84,7 @@ export async function onRequestPost(context) {
   let timer;
   const timeout = new Promise(resolve => {
     timer = setTimeout(() => {
-      resolve(json({ error: 'Analysis reached its 240-second time limit. Run the analysis again.' }, 504));
+      resolve(json({ error: 'Analysis reached its 115-second time limit. Run the analysis again.' }, 504));
       controller.abort();
     }, ANALYSIS_DEADLINE_MS);
   });
