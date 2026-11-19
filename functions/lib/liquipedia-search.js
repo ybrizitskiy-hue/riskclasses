@@ -81,7 +81,27 @@ function snippetNamesTournament(snippet, competition) {
 
 function sourceNamesTournament(source, competition) {
   return sameTournamentIdentity(source.title, competition)
-    || snippetNamesTournament(source.snippet, competition);
+    || snippetNamesTournament(source.snippet, competition)
+    || snippetNamesTournament(source.url, competition);
+}
+
+function canonicalSearchQuery(sport, competition) {
+  const season = competition.match(/\bSeason\s+(\d+)\b/i)?.[1];
+  const division = competition.match(/\b(Open10|Intermediate|Advanced|Main|Entry|Open|ECL)\b/i)?.[1];
+  const region = competition.match(/\b(North America|South America|Oceania|Asia|Europe)\b/i)?.[1];
+  if (/(?:counter[- ]?strike|cs2|cs:?go)/i.test(sport) && /\bESEA\b/i.test(competition) && season && division && region) {
+    return `"ESEA Season ${season}: ${division} Division - ${region}" Liquipedia Counter-Strike`;
+  }
+  return null;
+}
+
+function searchQueries(sport, competition) {
+  const canonical = canonicalSearchQuery(sport, competition);
+  return [...new Set([
+    `${sport} ${competition} tournament tier`,
+    `${competition} ${sport} Liquipedia tournament tier`,
+    ...(canonical ? [canonical] : []),
+  ])];
 }
 
 export async function collectEsportsEvidence(env, rows, signal) {
@@ -92,9 +112,9 @@ export async function collectEsportsEvidence(env, rows, signal) {
     const sport = String(row.sport || '').trim();
     const competition = String(row.competition || '').trim();
     if (!isEsportsSport(sport) || !competition) continue;
-    const query = `${sport} ${competition} tournament tier`;
-    const key = query.toLowerCase().replace(/\s+/g, ' ');
-    if (!lookups.has(key)) lookups.set(key, { indexes: [], sport, competition, query });
+    const queries = searchQueries(sport, competition);
+    const key = queries[0].toLowerCase().replace(/\s+/g, ' ');
+    if (!lookups.has(key)) lookups.set(key, { indexes: [], sport, competition, queries });
     lookups.get(key).indexes.push(row.inputIndex);
   }
 
@@ -106,16 +126,14 @@ export async function collectEsportsEvidence(env, rows, signal) {
     signal?.throwIfAborted();
     const batch = pending.slice(offset, offset + parallelSearches);
     const results = await Promise.all(batch.map(async lookup => {
-      searches += 1;
-      const initial = await searchLiquipedia(env, lookup.query, signal);
-      const exact = initial.sources.filter(source => sourceNamesTournament(source, lookup.competition));
-      if (exact.length) return exact;
-
-      signal?.throwIfAborted();
-      searches += 1;
-      const fallbackQuery = `${lookup.competition} ${lookup.sport} Liquipedia tournament tier`;
-      const fallback = await searchLiquipedia(env, fallbackQuery, signal);
-      return fallback.sources.filter(source => sourceNamesTournament(source, lookup.competition));
+      for (const query of lookup.queries) {
+        signal?.throwIfAborted();
+        searches += 1;
+        const result = await searchLiquipedia(env, query, signal);
+        const exact = result.sources.filter(source => sourceNamesTournament(source, lookup.competition));
+        if (exact.length) return exact;
+      }
+      return [];
     }));
     for (const [index, sources] of results.entries()) {
       if (sources.length) evidence.push({ inputIndexes: batch[index].indexes, sources });
