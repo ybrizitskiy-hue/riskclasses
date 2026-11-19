@@ -129,6 +129,8 @@ try {
 
 let eseaTitle = 'ESEA Season 59: Intermediate Division - Oceania';
 let eseaSnippet = 'ESEA Season 59: Intermediate Division - Oceania. Liquipedia Tier: C-Tier.';
+let eseaUrl = 'https://liquipedia.net/counterstrike/ESEA/Season_59/Intermediate/Oceania';
+const eseaCanonicalQuery = '"ESEA Season 59: Intermediate Division - Oceania" Liquipedia Counter-Strike';
 let eseaSearches = 0;
 try {
   globalThis.fetch = async (target, options) => {
@@ -137,10 +139,11 @@ try {
     assertLive.ok([
       'Counter Strike ESEA Intermediate Season 59 Oceania tournament tier',
       'ESEA Intermediate Season 59 Oceania Counter Strike Liquipedia tournament tier',
+      eseaCanonicalQuery,
     ].includes(query));
     eseaSearches += 1;
     return Response.json({ results: [{
-      url: 'https://liquipedia.net/counterstrike/ESEA/Season_59/Intermediate/Oceania',
+      url: eseaUrl,
       title: eseaTitle + ' - Liquipedia Counter-Strike Wiki',
       content: eseaSnippet,
     }] });
@@ -164,12 +167,21 @@ try {
     'ESEA Season 59: Advanced Division - Oceania',
   ]) {
     eseaTitle = title;
+    eseaUrl = 'https://liquipedia.net/counterstrike/ESEA';
     eseaSnippet = 'Liquipedia Tier: C-Tier.';
     match = await collectEsportsEvidence(env, [row]);
     assertLive.equal(match.evidence.length, 0, `A different ESEA event must not match ${title}`);
-    assertLive.equal(match.searches, 2, 'An unmatched first search should trigger one alternate query');
+    assertLive.equal(match.searches, 3, 'An unmatched event should use the third canonical search query');
   }
-  assertLive.equal(eseaSearches, 10);
+  assertLive.equal(eseaSearches, 14);
+
+  eseaUrl = 'https://liquipedia.net/counterstrike/ESEA/Season_59/Intermediate/Oceania';
+  eseaTitle = 'Liquipedia Counter-Strike Wiki';
+  eseaSnippet = 'C-Tier event listing.';
+  match = await collectEsportsEvidence(env, [row]);
+  assertLive.equal(match.searches, 1, 'The exact Liquipedia event path should identify the competition when title/snippet omit it');
+  assertLive.equal(match.evidence.length, 1);
+  assertLive.equal(match.evidence[0].sources[0].url, eseaUrl);
 
   eseaTitle = 'ESEA Season 59: Intermediate Division - Oceania - Liquipedia Counter-Strike Wiki';
   eseaSnippet = 'ESEA Season 59: Intermediate Division - Oceania. Liquipedia Tier: C-Tier.';
@@ -181,9 +193,12 @@ try {
       assertLive.ok([
         'Counter Strike ESEA Intermediate Season 59 Oceania tournament tier',
         'ESEA Intermediate Season 59 Oceania Counter Strike Liquipedia tournament tier',
+        eseaCanonicalQuery,
       ].includes(query));
       return Response.json({ results: [{
-        url: 'https://liquipedia.net/counterstrike/ESEA/Season_59/Intermediate/Oceania',
+        url: query.startsWith('Counter Strike')
+          ? 'https://liquipedia.net/counterstrike/ESEA/Season_58/Intermediate/Oceania'
+          : 'https://liquipedia.net/counterstrike/ESEA/Season_59/Intermediate/Oceania',
         title: query.startsWith('Counter Strike')
           ? 'ESEA Season 58: Intermediate Division - Oceania - Liquipedia Counter-Strike Wiki'
           : 'C-Tier Tournaments: 2026 Q4 - Liquipedia Counter-Strike Wiki',
