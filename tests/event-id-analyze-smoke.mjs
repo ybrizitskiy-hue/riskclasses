@@ -1,5 +1,5 @@
 import { strict as assertLive } from 'node:assert';
-import { onRequestPost } from '../functions/api/analyze-core.js';
+import { buildDeveloperPrompt, onRequestPost } from '../functions/api/analyze-core.js';
 import { collectEsportsEvidence } from '../functions/lib/liquipedia-search.js';
 import { readFileSync } from 'node:fs';
 import { decorateInputRows, parseCompetitionRows } from '../functions/lib/input-contract.js';
@@ -26,9 +26,23 @@ const bundle = {
   version: 'esports-test', schemaVersion: 1,
   instructions: 'Use the managed rules and verified tournament evidence. '.repeat(35),
   knowledge: 'Managed sportsbook knowledge. '.repeat(140),
-  deterministicRules: { engineVersion: 3, rules: [{ id: 'test-football', sport: 'football', match: { any: ['World Cup'] }, global: 'RC A', daznEs: '', daznDe: '', daznUk: '', basis: 'test' }] },
+  deterministicRules: { engineVersion: 3, rules: [
+    ...Array.from({ length: 156 }, (_, index) => ({
+      id: `test-football-${index}`,
+      sport: 'football',
+      match: { any: [`World Cup ${index}`] },
+      global: 'RC A', daznEs: '', daznDe: '', daznUk: '',
+      basis: `Unrelated deterministic test rule ${index} ${'x'.repeat(700)}`,
+    })),
+    { id: 'test-dota-reference', sport: 'Dota 2', match: { any: ['The International'] }, global: 'RC B', daznEs: 'Same as Global', daznDe: 'Same as Global', daznUk: 'Same as Global', basis: 'Dota reference rule' },
+  ] },
   resultPolicies: [], resultTransforms: [],
 };
+const promptContext = buildDeveloperPrompt(bundle, { webAvailable: false, rows: [{ sport: 'Dota 2' }] });
+assert(promptContext.includes('test-dota-reference'), 'AI prompt must retain deterministic context for the represented sport');
+assert(!promptContext.includes('test-football-0'), 'AI prompt must exclude deterministic rules for unrelated sports');
+assert(promptContext.includes(bundle.knowledge), 'AI prompt must retain the complete approved knowledge source');
+assert(promptContext.length < 20000, 'AI prompt must not include the unrelated 156-rule payload');
 let searches = 0;
 let classifications = 0;
 let citation = url;
@@ -47,6 +61,8 @@ try {
     classifications++;
     assertLive.equal(searches, classifications, 'Each run must search before asking for even a confident classification');
     assertLive.ok(options.body.includes('Liquipedia Tier: Tier 1.'));
+    assertLive.ok(options.body.includes('test-dota-reference'), 'Classification prompt should retain relevant same-sport rules');
+    assertLive.ok(!options.body.includes('test-football-0'), 'Classification prompt should omit off-sport deterministic rules');
     return Response.json({ output_text: JSON.stringify({ rows: [{
       inputIndex: 0, sport: 'Dota 2', competition: tournament, global: 'RC C',
       daznEs: 'RC C', daznDe: 'RC C', daznUk: 'RC C', basis: 'Tier 1',

@@ -372,7 +372,7 @@ async function classifyWithProfile({ env, providerConfig, profile, rows, rules, 
     ...group, inputIndexes: group.inputIndexes.filter(index => indexes.has(index)),
   })).filter(group => group.inputIndexes.length);
   const webAvailable = profileHasWebSearch(profile) && !externalSearch;
-  const developerPrompt = buildDeveloperPrompt(rules, { webAvailable });
+  const developerPrompt = buildDeveloperPrompt(rules, { webAvailable, rows });
   const compactRows = rows.map(({
     inputIndex,
     sport,
@@ -413,9 +413,31 @@ export function profileHasWebSearch(profile) {
   return Boolean(profile?.capabilities?.webSearch);
 }
 
-export function buildDeveloperPrompt(rules, { webAvailable }) {
+function normalizePromptSport(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[–—]/g, '-')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function buildDeveloperPrompt(rules, { webAvailable, rows = [] }) {
+  const representedSports = new Set((Array.isArray(rows) ? rows : [])
+    .map(row => normalizePromptSport(row?.sport))
+    .filter(Boolean));
+  const deterministicRules = rules.deterministicRules && typeof rules.deterministicRules === 'object'
+    ? { ...rules.deterministicRules }
+    : {};
+  if (Array.isArray(deterministicRules.rules)) {
+    deterministicRules.rules = deterministicRules.rules.filter(rule =>
+      representedSports.has(normalizePromptSport(rule?.sport)),
+    );
+  }
   const structuredRules = JSON.stringify({
-    deterministicRules: rules.deterministicRules || {},
+    deterministicRules,
     resultPolicies: Array.isArray(rules.resultPolicies) ? rules.resultPolicies : [],
     resultTransforms: Array.isArray(rules.resultTransforms) ? rules.resultTransforms : [],
   });
@@ -429,6 +451,8 @@ ${rules.knowledge}
 
 --- MANAGED STRUCTURED RULES AND POLICIES ---
 ${structuredRules}
+
+The deterministic engine already evaluated every managed rule against these rows; this reference list is limited to sports represented in this AI request.
 
 --- WEBSITE ROUTING CONTRACT (HARD) ---
 The managed JSON above is the sole sportsbook rule authority. These rows were not resolved by deterministicRules.rules from that JSON, so classify them using the same managed instructions and knowledge. Application code does not supply provider-specific Tennis classes, SRL classes, round/stage exceptions, sport matrices, or other fallback RC mappings. Return only structured output. Keep inputIndex unchanged and preserve sport/competition text exactly. Competition ID is provider context only: IDs starting BG are Betgenius, IDs starting DB are Databet, and IDs starting U are Betradar. Always return the internal Global/base plus exactly three DAZN values: daznEs (DAZN ES), daznDe (DAZN DE), and daznUk (DAZN UK). Never return Quinnbet or another brand. DAZN DE follows Global unless a future approved rule explicitly overrides it. A blank or Same as Global brand value inherits the resolved Global value exactly; do not create a missing-rule warning solely because a brand override is absent. Only use Manual check / missing rule when neither managed Global nor a managed brand-specific value can be established. Follow every review label, Stage rule, confidence exception, operational exception, outright adjustment and brand mapping exactly as defined in the managed JSON. ${researchContract} Never invent brand overrides. Set needsEscalation=true only when material classification uncertainty remains after applying the managed JSON.`;
