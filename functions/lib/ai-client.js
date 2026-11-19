@@ -5,6 +5,8 @@ import {
 } from './provider-config.js';
 
 const MODEL_DEADLINE_MS = 50_000;
+// Preserve the full first try; shorter retries cap the total provider wait near 100 seconds.
+const RETRY_MODEL_DEADLINE_MS = 15_000;
 const RETRY_DELAYS_MS = [700, 1800, 3000];
 const MAX_MODEL_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
 const MAX_RETRY_AFTER_MS = 5000;
@@ -154,7 +156,7 @@ async function fetchWithRetries(endpoint, init, parentSignal) {
   let lastError = null;
   for (let attempt = 1; attempt <= MAX_MODEL_ATTEMPTS; attempt += 1) {
     if (parentSignal?.aborted) return { response: null, attempts: attempt - 1, error: parentSignal.reason, aborted: true };
-    const modelDeadline = AbortSignal.timeout(MODEL_DEADLINE_MS);
+    const modelDeadline = AbortSignal.timeout(attempt === 1 ? MODEL_DEADLINE_MS : RETRY_MODEL_DEADLINE_MS);
     const attemptSignal = parentSignal ? AbortSignal.any([parentSignal, modelDeadline]) : modelDeadline;
     try {
       const response = await fetch(endpoint, { ...init, signal: attemptSignal });
