@@ -261,7 +261,7 @@ function showLocalWarning(message) {
   els.resultsCard.classList.remove('hidden');
 }
 
-const ANALYSIS_REQUEST_DEADLINE_MS = 250_000;
+const ANALYSIS_REQUEST_DEADLINE_MS = 120_000;
 
 async function analyze() {
   if (state.busy) return;
@@ -292,7 +292,7 @@ async function analyze() {
   } catch (error) {
     stopProgress(false);
     showLocalWarning(deadline.aborted
-      ? 'Analysis timed out after 250 seconds. Run the analysis again.'
+      ? 'Analysis timed out after 120 seconds. Run the analysis again.'
       : error.message || 'Analysis failed.');
   } finally {
     state.busy = false;
