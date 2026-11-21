@@ -131,7 +131,12 @@ tbody tr:hover { background: rgba(255,255,255,.018); }
 td:nth-child(1) { width: 110px; font-weight: 700; color: #dce2eb; }
 td:nth-child(2) { min-width: 260px; color: #f0f3f8; }
 td:nth-child(3), td:nth-child(4), td:nth-child(5), td:nth-child(6) { min-width: 92px; font-weight: 800; color: #f2f5fa; white-space: nowrap; }
-td:nth-child(7) { min-width: 180px; }
+td:nth-child(7) { min-width: 72px; }
+.basis-trigger { font: inherit; font-weight: 700; color: #c9dbf3; background: #1c293a; border: 1px solid #41536e; border-radius: 5px; padding: 3px 7px; cursor: help; white-space: nowrap; }
+.basis-trigger:hover, .basis-trigger:focus-visible { background: #2c3c53; }
+.basis-trigger:focus-visible { outline: 2px solid #a0bdff; outline-offset: 2px; }
+.basis-popup { position: fixed; z-index: 450; width: max-content; max-width: min(380px, calc(100vw - 24px)); box-sizing: border-box; padding: 10px 12px; border: 1px solid #536783; border-radius: 7px; background: #1a2638; color: #eef4ff; box-shadow: 0 8px 22px rgba(0,0,0,.4); font-size: 13px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; pointer-events: none; }
+.basis-popup[hidden] { display: none; }
 td:nth-child(8) { width: 120px; }
 td:nth-child(9) { min-width: 170px; }
 td:nth-child(10) { width: 105px; }

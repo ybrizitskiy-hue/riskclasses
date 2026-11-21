@@ -209,7 +209,76 @@ function sourceChips(sources) {
   return `<div class="source-list">${items.map((source) => `<span class="source-chip" title="${escapeHtml(source)}">${escapeHtml(source)}</span>`).join('')}</div>`;
 }
 
+let basisPopup;
+let basisAnchor;
+
+function hideBasis() {
+  if (basisPopup) basisPopup.hidden = true;
+  basisAnchor?.removeAttribute('aria-describedby');
+  basisAnchor = null;
+}
+
+function showBasis(button) {
+  if (!basisPopup) {
+    basisPopup = document.createElement('div');
+    basisPopup.id = 'resultBasisPopup';
+    basisPopup.className = 'basis-popup';
+    basisPopup.setAttribute('role', 'tooltip');
+    basisPopup.hidden = true;
+    document.body.appendChild(basisPopup);
+  }
+  if (basisAnchor && basisAnchor !== button) hideBasis();
+  basisAnchor = button;
+  basisPopup.textContent = button.dataset.basis;
+  button.setAttribute('aria-describedby', basisPopup.id);
+  basisPopup.hidden = false;
+
+  const anchor = button.getBoundingClientRect();
+  const popup = basisPopup.getBoundingClientRect();
+  const gap = 8;
+  const min = 12;
+  const viewportWidth = document.documentElement.clientWidth;
+  const viewportHeight = document.documentElement.clientHeight;
+  const left = Math.max(min, Math.min(anchor.left, viewportWidth - popup.width - min));
+  const below = anchor.bottom + gap;
+  const top = below + popup.height <= viewportHeight - min
+    ? below
+    : Math.max(min, anchor.top - popup.height - gap);
+  basisPopup.style.left = left + 'px';
+  basisPopup.style.top = top + 'px';
+}
+
+const basisButton = (event) => event.target.closest('.basis-trigger');
+els.resultsBody.addEventListener('pointerover', (event) => {
+  const button = basisButton(event);
+  if (button && event.pointerType !== 'touch') showBasis(button);
+});
+els.resultsBody.addEventListener('pointerout', (event) => {
+  const button = basisButton(event);
+  if (button === basisAnchor && button !== document.activeElement && !button?.contains(event.relatedTarget)) hideBasis();
+});
+els.resultsBody.addEventListener('focusin', (event) => {
+  const button = basisButton(event);
+  if (button) showBasis(button);
+});
+els.resultsBody.addEventListener('focusout', (event) => {
+  if (basisButton(event) === basisAnchor) hideBasis();
+});
+els.resultsBody.addEventListener('click', (event) => {
+  const button = basisButton(event);
+  if (button) showBasis(button);
+});
+document.addEventListener('pointerdown', (event) => {
+  if (basisAnchor && !basisAnchor.contains(event.target)) hideBasis();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') hideBasis();
+});
+document.addEventListener('scroll', hideBasis, true);
+window.addEventListener('resize', hideBasis);
+
 function renderResults(payload) {
+  hideBasis();
   state.results = (payload.rows || []).map(normalizeResultRow);
   state.warnings = payload.warnings || [];
   els.resultsBody.innerHTML = '';
@@ -224,7 +293,7 @@ function renderResults(payload) {
       <td>${escapeHtml(row.daznEs)}</td>
       <td>${escapeHtml(row.daznDe)}</td>
       <td>${escapeHtml(row.daznUk)}</td>
-      <td>${escapeHtml(row.basis)}</td>
+      <td>${row.basis ? `<button type="button" class="basis-trigger" data-basis="${escapeHtml(row.basis)}" aria-label="Basis for ${escapeHtml(row.competition)}">Why?</button>` : '—'}</td>
       <td><span class="confidence-pill ${confClass}">${escapeHtml(row.confidence)}</span></td>
       <td>${sourceChips(row.sources)}</td>
       <td><span class="manual-pill ${row.manualCheckType === 'Stage' ? 'stage' : (row.manualCheck ? 'yes' : 'no')}" title="${escapeHtml(row.manualCheckReason || '')}">${escapeHtml(row.manualCheckType)}</span></td>
