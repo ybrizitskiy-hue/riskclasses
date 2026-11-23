@@ -53,6 +53,37 @@ const env = {
 };
 const fetchBefore = globalThis.fetch;
 try {
+  const unreadableWarning = 'Competition ID unreadable for World Cup 3.';
+  const extractedRows = ['BG-33920', 'DB-33917', 'U-33913', ''].map((competitionId, index) => ({
+    sport: 'Football', competition: 'World Cup ' + index, competitionId,
+  }));
+  let extractionCalls = 0;
+  globalThis.fetch = async (target, options) => {
+    extractionCalls++;
+    const request = JSON.parse(options.body);
+    assertLive.equal(request.prompt_cache_key, 'riskclasses-row-extraction-v4');
+    assertLive.match(request.input[0].content[0].text, /First read the named ID column on its own/);
+    assertLive.match(request.input[0].content[0].text, /Never infer the prefix/);
+    assertLive.equal(request.input[1].content[1].detail, 'original');
+    return Response.json({ output_text: JSON.stringify({ rows: extractedRows, warnings: [unreadableWarning] }) });
+  };
+  const response = await onRequestPost({
+    env,
+    request: new Request('https://example.test/api/analyze', {
+      method: 'POST',
+      body: JSON.stringify({ mode: 'image', images: ['data:image/png;base64,AA=='], routingMode: 'economy' }),
+    }),
+  });
+  assertLive.equal(response.status, 200);
+  const result = await response.json();
+  assertLive.equal(extractionCalls, 1);
+  assertLive.deepEqual(result.rows.map(row => row.competitionId), extractedRows.map(row => row.competitionId));
+  assertLive.ok(result.warnings.includes(unreadableWarning));
+} finally {
+  globalThis.fetch = fetchBefore;
+}
+
+try {
   globalThis.fetch = async (target, options) => {
     if (target === 'https://api.tavily.com/search') {
       searches++;

@@ -32,9 +32,9 @@ const EXTRACTION_SCHEMA = {
         additionalProperties: false,
         required: ['sport', 'competition', 'competitionId'],
         properties: {
+          competitionId: { type: 'string' },
           sport: { type: 'string' },
           competition: { type: 'string' },
-          competitionId: { type: 'string' },
         },
       },
     },
@@ -340,7 +340,14 @@ async function extractRowsFromImages(env, providerConfig, profile, images, reaso
       role: 'developer',
       content: [{
         type: 'input_text',
-        text: 'Extract Sport, Competition and Competition ID/Event ID rows from spreadsheet-like screenshots. Preserve competition text and ID exactly as visible, including punctuation, accents, country, gender, round, qualifier text, capitalization and hyphens. If an older input has no ID column, return competitionId as an empty string. Keep top-to-bottom order. Across consecutive overlapping screenshots, remove only obvious exact boundary-overlap duplicates. Do not classify risk classes, infer the data provider or research anything. If material text is unreadable, omit that row and add a warning.',
+        text: [
+          'Extract Sport, Competition and Competition ID/Event ID rows from spreadsheet-like screenshots.',
+          'First read the named ID column on its own, top to bottom. Recheck every prefix letter and digit against the image. BG, DB and U are distinct prefixes and can be mixed in the same column, including on adjacent rows or within the same sport.',
+          'Pair each ID with the competition cell on the same visual row. Copy the full ID verbatim, including its hyphen. Never infer the prefix from the sport, nearby IDs or a numeric sequence.',
+          'If the ID column is absent, use an empty competitionId. If an ID is unreadable, use an empty competitionId and warn with the competition name. If other material text is unreadable, omit that row and add a warning.',
+          'Keep top-to-bottom order and preserve competition text, including punctuation, accents, country, gender, round, qualifier text and capitalization. Across consecutive overlapping screenshots, remove only obvious exact boundary-overlap duplicates.',
+          'Do not classify risk classes, infer the data provider or research anything.',
+        ].join(' '),
       }],
     },
     {
@@ -362,7 +369,7 @@ async function extractRowsFromImages(env, providerConfig, profile, images, reaso
     schema: EXTRACTION_SCHEMA,
     schemaName: 'risk_class_row_extraction',
     useWeb: false,
-    promptCacheKey: 'riskclasses-row-extraction-v3',
+    promptCacheKey: 'riskclasses-row-extraction-v4',
     sessionId: aiSessionId,
     signal,
   });
