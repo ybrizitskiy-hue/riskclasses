@@ -210,7 +210,7 @@ export function normalizeProviderConfig(value, env = {}) {
     baseUrl: normalizeBaseUrl(profile.baseUrl),
     pathPrefix: String(profile.pathPrefix || '').trim().replace(/^\/+|\/+$/g, ''),
     byokAlias: String(profile.byokAlias || '').trim(),
-    sessionHeader: String(profile.sessionHeader || (profile.transport === 'cloudflare-provider' ? 'x-opencode-session' : '')).trim(),
+    sessionHeader: String(profile.sessionHeader ?? (profile.transport === 'cloudflare-provider' ? 'x-opencode-session' : '')).trim(),
     webSearchMode: String(profile.webSearchMode || defaultWebSearchMode(profile.protocol)),
     capabilities: {
       vision: Boolean(profile.capabilities?.vision),
