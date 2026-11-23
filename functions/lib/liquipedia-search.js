@@ -107,6 +107,7 @@ function searchQueries(sport, competition) {
 const COUNTER_STRIKE = /^(?:counter[- ]?strike(?:\s*(?:2|:\s*global offensive))?|cs2|cs:?go)$/i;
 
 function counterStrikeTierEvidence(source, competition) {
+  if (!sameTournamentIdentity(source.title, competition) && !snippetNamesTournament(source.url, competition)) return null;
   const snippet = source.snippet;
   const explicit = snippet.match(/\bLiquipedia\s+Tier\s*:\s*([SABCD])[- ]Tier\b/i);
   const description = sameTournamentIdentity(source.title, competition)
