@@ -104,6 +104,21 @@ function searchQueries(sport, competition) {
   ])];
 }
 
+const COUNTER_STRIKE = /^(?:counter[- ]?strike(?:\s*(?:2|:\s*global offensive))?|cs2|cs:?go)$/i;
+
+function counterStrikeTierEvidence(source, competition) {
+  if (!sameTournamentIdentity(source.title, competition) && !snippetNamesTournament(source.url, competition)) return null;
+  const snippet = source.snippet;
+  const explicit = snippet.match(/\bLiquipedia\s+Tier\s*:\s*([SABCD])[- ]Tier\b/i);
+  const description = sameTournamentIdentity(source.title, competition)
+    ? snippet.match(/\bThis\s+([SABCD])[- ]Tier\s+(tournament|qualifier|event)\b/i)
+    : null;
+  if (explicit && description && explicit[1].toUpperCase() !== description[1].toUpperCase()) return null;
+  const grade = explicit?.[1] || description?.[1];
+  if (!grade) return null;
+  return { tier: grade.toUpperCase() + '-Tier', ...(description ? { kind: description[2].toLowerCase() } : {}) };
+}
+
 export async function collectEsportsEvidence(env, rows, signal) {
   if (!String(env?.TAVILY_API_KEY || '').trim()) return { evidence: [], searches: 0 };
 
@@ -130,7 +145,14 @@ export async function collectEsportsEvidence(env, rows, signal) {
         signal?.throwIfAborted();
         searches += 1;
         const result = await searchLiquipedia(env, query, signal);
-        const exact = result.sources.filter(source => sourceNamesTournament(source, lookup.competition));
+        const counterStrike = COUNTER_STRIKE.test(lookup.sport);
+        const exact = result.sources
+          .filter(source => (!counterStrike || new URL(source.url).pathname.startsWith('/counterstrike/'))
+            && sourceNamesTournament(source, lookup.competition))
+          .map(source => {
+            const tierEvidence = counterStrike ? counterStrikeTierEvidence(source, lookup.competition) : null;
+            return tierEvidence ? { ...source, tierEvidence } : source;
+          });
         if (exact.length) return exact;
       }
       return [];

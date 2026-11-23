@@ -53,6 +53,37 @@ const env = {
 };
 const fetchBefore = globalThis.fetch;
 try {
+  const unreadableWarning = 'Competition ID unreadable for World Cup 3.';
+  const extractedRows = ['BG-33920', 'DB-33917', 'U-33913', ''].map((competitionId, index) => ({
+    sport: 'Football', competition: 'World Cup ' + index, competitionId,
+  }));
+  let extractionCalls = 0;
+  globalThis.fetch = async (target, options) => {
+    extractionCalls++;
+    const request = JSON.parse(options.body);
+    assertLive.equal(request.prompt_cache_key, 'riskclasses-row-extraction-v4');
+    assertLive.match(request.input[0].content[0].text, /First read the named ID column on its own/);
+    assertLive.match(request.input[0].content[0].text, /Never infer the prefix/);
+    assertLive.equal(request.input[1].content[1].detail, 'original');
+    return Response.json({ output_text: JSON.stringify({ rows: extractedRows, warnings: [unreadableWarning] }) });
+  };
+  const response = await onRequestPost({
+    env,
+    request: new Request('https://example.test/api/analyze', {
+      method: 'POST',
+      body: JSON.stringify({ mode: 'image', images: ['data:image/png;base64,AA=='], routingMode: 'economy' }),
+    }),
+  });
+  assertLive.equal(response.status, 200);
+  const result = await response.json();
+  assertLive.equal(extractionCalls, 1);
+  assertLive.deepEqual(result.rows.map(row => row.competitionId), extractedRows.map(row => row.competitionId));
+  assertLive.ok(result.warnings.includes(unreadableWarning));
+} finally {
+  globalThis.fetch = fetchBefore;
+}
+
+try {
   globalThis.fetch = async (target, options) => {
     if (target === 'https://api.tavily.com/search') {
       searches++;
@@ -84,6 +115,11 @@ try {
   assertLive.deepEqual(result.rows[0].sources, [url]);
   assertLive.deepEqual(['daznEs', 'daznDe', 'daznUk'].map(key => result.rows[0][key]), ['RC C', 'RC C', 'RC C']);
 
+  citation = url + ' — Liquipedia Tier: Tier 1';
+  result = await analyze();
+  assertLive.deepEqual(result.rows[0].sources, [url], 'A decorated citation must preserve the verified bare URL');
+  assertLive.equal(result.rows[0].manualCheck, false);
+
   citation = 'https://liquipedia.net/dota2/PGL/Wallachia/9';
   result = await analyze();
   assertLive.equal(result.rows[0].manualCheck, true);
@@ -92,8 +128,8 @@ try {
   searchTitle = 'PGL Wallachia Season 9';
   result = await analyze();
   assertLive.equal(result.rows[0].manualCheck, true);
-  assertLive.equal(classifications, 2, 'A wrong tournament from search must not reach classification');
-  assertLive.equal(searches, 4, 'A mismatched search result should consume exactly one fallback search');
+  assertLive.equal(classifications, 3, 'A wrong tournament from search must not reach classification');
+  assertLive.equal(searches, 5, 'A mismatched search result should consume exactly one fallback search');
 } finally {
   globalThis.fetch = fetchBefore;
 }
@@ -235,6 +271,33 @@ try {
   globalThis.fetch = fetchBefore;
 }
 console.log('Counter-Strike Liquipedia title and alias matching passed');
+
+const csCases = [
+  {
+    competition: 'UESF Ukrainian Championship 2026: Stage 5',
+    url: 'https://liquipedia.net/counterstrike/UESF/Ukrainian_Championship/2026/Stage_5',
+    kind: 'tournament',
+  },
+  {
+    competition: 'European Pro League Series 11 Play-In',
+    url: 'https://liquipedia.net/counterstrike/European_Pro_League/Series_11/Play-In',
+    kind: 'qualifier',
+  },
+];
+for (const cs of csCases) {
+  try {
+    globalThis.fetch = async () => Response.json({ results: [
+      { url: cs.url.replace('/counterstrike/', '/dota2/'), title: cs.competition, content: 'Liquipedia Tier: A-Tier.' },
+      { url: cs.url, title: cs.competition, content: cs.competition + ' is a CS2 event. This C-Tier ' + cs.kind + ' is a Valve Tier 2.' },
+    ] });
+    const result = await collectEsportsEvidence(env, [{ sport: 'Counter Strike', competition: cs.competition, inputIndex: 0 }]);
+    assertLive.equal(result.searches, 1);
+    assertLive.deepEqual(result.evidence[0].sources.map(s => s.url), [cs.url], 'The same title on the Dota 2 wiki must not qualify');
+    assertLive.deepEqual(result.evidence[0].sources[0].tierEvidence, { tier: 'C-Tier', kind: cs.kind });
+  } finally {
+    globalThis.fetch = fetchBefore;
+  }
+}
 
 const savedSetTimeout = globalThis.setTimeout;
 try {
