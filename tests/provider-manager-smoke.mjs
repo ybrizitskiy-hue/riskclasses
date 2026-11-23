@@ -9,6 +9,7 @@ import {
 import { callAiJson, profileEndpoint } from '../functions/lib/ai-client.js';
 import { syncManagedCustomProviders } from '../functions/lib/cloudflare-provider-admin.js';
 import { onRequestGet, onRequestPost, onRequestPut } from '../functions/api/providers.js';
+import { onRequestPost as saveProviderKey } from '../functions/api/provider-key.js';
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 if (!globalThis.btoa) globalThis.btoa = (value) => Buffer.from(value, 'binary').toString('base64');
@@ -108,8 +109,10 @@ result = await callAiJson({
 });
 assert(result.ok && captured.init.headers['x-opencode-session'] === 'ses_fixed123', 'Explicit session IDs must be forwarded unchanged');
 
-const normalizedCustom = normalizeProviderConfig({ ...chatConfig, profiles: [{ ...chatProfile, sessionHeader: '' }] }, cfEnv);
-assert(normalizedCustom.profiles[0].sessionHeader === 'x-opencode-session', 'Custom provider profiles must default to x-opencode-session');
+const normalizedCustom = normalizeProviderConfig({ ...chatConfig, profiles: [{ ...chatProfile, sessionHeader: undefined }] }, cfEnv);
+assert(normalizedCustom.profiles[0].sessionHeader === 'x-opencode-session', 'Existing custom provider profiles without a session setting keep the legacy default');
+const noSessionHeader = normalizeProviderConfig({ ...chatConfig, profiles: [{ ...chatProfile, sessionHeader: '' }] }, cfEnv);
+assert(noSessionHeader.profiles[0].sessionHeader === '', 'An explicitly blank session header must stay disabled');
 
 let retryCalls = 0;
 globalThis.fetch = async () => {
@@ -266,6 +269,83 @@ for (const cite of [trustedUrl, otherUrl]) {
     ? response.status === 200 && data.webSearchVerified && data.webSearchSources[0]?.url === trustedUrl
     : response.status === 502 && !data.webSearchVerified,
   'Provider 4 live-test contract must accept only a retrieved source');
+}
+
+const keyEnv = { ...adminEnv, ...syncEnv, CF_AI_GATEWAY_KEYS_TOKEN: 'test-only-keys-token-placeholder' };
+const keyConfig = structuredClone(chatConfig);
+keyConfig.cloudflare.gatewayId = stored.cloudflare.gatewayId;
+keyConfig.profiles[0].byokAlias = 'test-alt-key';
+const fakeKey = 'test-only-upstream-key-placeholder';
+let attemptedStore = 0;
+let existingKey = false;
+let failStore = false;
+let wrongAddress = false;
+let customMissing = false;
+let customCreated = false;
+let expectedCredential = 'test-only-keys-token-placeholder';
+globalThis.fetch = async (url, init) => {
+  const endpoint = new URL(url);
+  if (endpoint.pathname.endsWith('/custom-providers')) {
+    if (init.method === 'POST' && customMissing) {
+      const body = JSON.parse(init.body);
+      assert(body.base_url === 'https://api.alt.test' && !init.body.includes(fakeKey), 'New custom providers are registered without disclosing their key to the address API');
+      customCreated = true;
+      customMissing = false;
+      return cfResponse({ id: 'new-provider' });
+    }
+    assert(init.method === 'GET', 'Key entry must preserve existing custom addresses');
+    return cfResponse(customMissing ? [] : [{ id: 'existing', slug: 'alt', enable: true, base_url: wrongAddress ? 'https://other.test' : 'https://api.alt.test' }]);
+  }
+  assert(endpoint.hostname === 'api.cloudflare.com' && endpoint.pathname.endsWith('/gateways/new-gateway/provider_configs'), 'Keys must go to the published gateway over Cloudflare HTTPS');
+  assert(init.headers.authorization === `Bearer ${expectedCredential}` && init.redirect === 'error', 'Storage must use the configured token and reject redirects');
+  const key = { provider_slug: 'alt', alias: 'test-alt-key', secret_preview: fakeKey };
+  if (init.method !== 'POST') return cfResponse(existingKey ? [key] : []);
+  attemptedStore++;
+  const body = JSON.parse(init.body);
+  assert(body.secret === fakeKey && body.alias === key.alias && body.provider_slug === 'alt' && body.default_config === false, 'Cloudflare key storage must use the unprefixed custom provider slug and a non-default alias');
+  if (failStore) return Response.json({ success: false, errors: [{ message: fakeKey }] }, { status: 403 });
+  existingKey = true;
+  return cfResponse(key);
+};
+const keyRequest = ({ auth = cookie, origin = 'https://example.test', env = keyEnv, config = keyConfig, apiKey = fakeKey } = {}) =>
+  saveProviderKey({ env, request: new Request('https://example.test/api/provider-key', {
+    method: 'POST', headers: { cookie: auth, origin, 'content-type': 'application/json' },
+    body: JSON.stringify({ apiKey, config, profileId: 'custom-chat' }),
+  }) });
+assert((await keyRequest({ auth: '' })).status === 401, 'Only signed-in admins can add keys');
+assert((await keyRequest({ origin: 'https://elsewhere.test' })).status === 403, 'Reject cross-origin key changes');
+assert((await keyRequest({ env: adminEnv })).status === 503, 'Key storage requires its own credential');
+assert((await keyRequest({ apiKey: 'invalid key' })).status === 400, 'Reject malformed keys');
+assert((await keyRequest({ config: chatConfig })).status === 400 && attemptedStore === 0, 'Reject a draft addressing an unpublished gateway');
+wrongAddress = true;
+assert((await keyRequest()).status === 409 && attemptedStore === 0, 'An existing custom address is preserved when creating a key');
+wrongAddress = false;
+failStore = true;
+response = await keyRequest();
+assert(response.status === 503 && !(await response.text()).includes(fakeKey), 'Cloudflare error text must never echo the key');
+failStore = false;
+customMissing = true;
+response = await keyRequest();
+data = await response.json();
+assert(response.status === 201 && customCreated && Object.keys(data).join(',') === 'ok,alias' && data.alias === 'test-alt-key', 'New custom providers and keys are created from one request, with only the alias in the response');
+assert((await keyRequest()).status === 409 && attemptedStore === 2, 'A duplicate alias must not overwrite a live key or send the secret again');
+assert(!JSON.stringify([...kv.map]).includes(fakeKey), 'The key must never enter provider KV');
+existingKey = false;
+expectedCredential = syncEnv.CF_AI_GATEWAY_ADMIN_TOKEN;
+response = await keyRequest({ env: { ...adminEnv, ...syncEnv } });
+assert(response.status === 201 && attemptedStore === 3, 'The existing gateway admin credential can store keys when it has permission');
+
+const visionRequest = () => onRequestPost(context('POST', { action:'test-vision', profileId:'custom-chat', config:chatConfig }, cookie, adminEnv));
+for (const digits of ['7462', '1234']) {
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    assert(body.messages[0].content.some(part => part.type === 'image_url' && part.image_url.url.startsWith('data:image/png;base64,')), 'The vision test must send a real image');
+    assert(!JSON.stringify(body).includes('7462'), 'The provider must recover the answer from pixels');
+    return Response.json({ choices: [{ message: { content: JSON.stringify({ digits }) } }] });
+  };
+  response = await visionRequest();
+  data = await response.json();
+  assert(digits === '7462' ? response.status === 200 && data.visionVerified : response.status === 502, 'Vision passes only when the model reads the shown digits');
 }
 
 console.log('provider manager smoke tests passed');

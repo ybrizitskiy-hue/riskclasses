@@ -4,7 +4,7 @@ import {
   isManagedCustomProfile,
 } from './provider-config.js';
 
-export async function syncManagedCustomProviders(env, config, { profileIds = null } = {}) {
+export async function syncManagedCustomProviders(env, config, { profileIds = null, createOnly = false, signal } = {}) {
   const profiles = (config?.profiles || []).filter((profile) => {
     if (!isManagedCustomProfile(profile)) return false;
     return !profileIds || profileIds.includes(profile.id);
@@ -16,7 +16,7 @@ export async function syncManagedCustomProviders(env, config, { profileIds = nul
   const accountId = effectiveCloudflareAccountId(config, env);
   if (!accountId) return { ok: false, status: 400, error: 'Cloudflare Account ID is required to synchronize custom providers.' };
 
-  const listed = await cloudflareRequest(env, accountId, 'GET', '/ai-gateway/custom-providers?per_page=100');
+  const listed = await cloudflareRequest(env, accountId, 'GET', '/ai-gateway/custom-providers?per_page=100', undefined, signal);
   if (!listed.ok) return listed;
   const existing = Array.isArray(listed.data?.result) ? listed.data.result : [];
   const results = [];
@@ -34,7 +34,7 @@ export async function syncManagedCustomProviders(env, config, { profileIds = nul
     };
 
     if (!found) {
-      const created = await cloudflareRequest(env, accountId, 'POST', '/ai-gateway/custom-providers', desired);
+      const created = await cloudflareRequest(env, accountId, 'POST', '/ai-gateway/custom-providers', desired, signal);
       if (!created.ok) return { ...created, error: `${profile.label}: ${created.error}` };
       results.push({ profileId: profile.id, action: 'created', id: created.data?.result?.id || '', slug, baseUrl: desired.base_url });
       existing.push(created.data?.result || desired);
@@ -42,16 +42,20 @@ export async function syncManagedCustomProviders(env, config, { profileIds = nul
       continue;
     }
 
-    const needsUpdate =
-      String(found.base_url || '').replace(/\/+$/g, '') !== desired.base_url.replace(/\/+$/g, '') ||
+    const addressChanged = String(found.base_url || '').replace(/\/+$/g, '') !== desired.base_url.replace(/\/+$/g, '');
+    if (createOnly && (addressChanged || found.enable === false)) {
+      return { ok: false, status: 409, error: 'This custom provider slug already has a different address or is disabled. Choose a new slug.' };
+    }
+    const needsUpdate = !createOnly && (
+      addressChanged ||
       String(found.name || '') !== desired.name ||
-      found.enable === false;
+      found.enable === false);
     if (!needsUpdate) {
       results.push({ profileId: profile.id, action: 'unchanged', id: found.id || '', slug, baseUrl: desired.base_url });
       continue;
     }
 
-    const updated = await cloudflareRequest(env, accountId, 'PATCH', `/ai-gateway/custom-providers/${encodeURIComponent(found.id)}`, desired);
+    const updated = await cloudflareRequest(env, accountId, 'PATCH', `/ai-gateway/custom-providers/${encodeURIComponent(found.id)}`, desired, signal);
     if (!updated.ok) return { ...updated, error: `${profile.label}: ${updated.error}` };
     results.push({ profileId: profile.id, action: 'updated', id: found.id || '', slug, baseUrl: desired.base_url });
     changed = true;
@@ -73,11 +77,13 @@ export function customProviderAddressChanged(currentConfig, nextConfig) {
   return false;
 }
 
-async function cloudflareRequest(env, accountId, method, path, body) {
+async function cloudflareRequest(env, accountId, method, path, body, signal) {
   let response;
   try {
     response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}${path}`, {
       method,
+      signal,
+      redirect: 'error',
       headers: {
         authorization: `Bearer ${env.CF_AI_GATEWAY_ADMIN_TOKEN}`,
         'content-type': 'application/json',

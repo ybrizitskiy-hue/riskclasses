@@ -20,6 +20,12 @@ const TEST_SCHEMA = {
   properties: { status: { type: 'string', enum: ['ok', 'unavailable'] } },
 };
 
+// A small PNG with four digits for the provider to transcribe.
+const VISION_TEST_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALQAAABGCAAAAABA/OH8AAAAgklEQVR4nO3OQQ6AIBAEQf7/ab1jiAuSMZrqm2SEascHa28DVoJOBZ0KOhV0KuhU0Kn+hW6DrovR98wd4wU0NDQ0dK0n6Oob1T+goaGhoSvXtEF7F9DQ0NDQq+j7ZX9yv6gFDQ0NDb0X3TezgIaGhob+XtCpoFNBp4JOBZ0KOhV0qhNkeVLSfpdjZAAAAABJRU5ErkJggg==';
+const VISION_TEST_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['digits'], properties: { digits: { type: 'string' } },
+};
+
 export async function onRequestGet(context) {
   if (!(await isAdminRequest(context.request, context.env))) return json({ ok: false, error: 'Admin unlock required.' }, 401);
   const config = await loadProviderConfig(context.env);
@@ -42,7 +48,7 @@ export async function onRequestPost(context) {
   const config = normalizeProviderConfig(body?.config || await loadProviderConfig(context.env), context.env);
   const validation = validateProviderConfig(config, context.env);
   if (action === 'validate') return json({ ok: validation.valid, validation, config }, validation.valid ? 200 : 400);
-  if (!['test', 'sync'].includes(action)) return json({ ok: false, error: 'Unsupported provider action.' }, 400);
+  if (!['test', 'test-vision', 'sync'].includes(action)) return json({ ok: false, error: 'Unsupported provider action.' }, 400);
   if (!validation.valid) return json({ ok: false, validation, error: 'Provider configuration must validate before testing or syncing.' }, 400);
 
   const profileId = String(body?.profileId || '');
@@ -55,13 +61,14 @@ export async function onRequestPost(context) {
     return json(sync.ok ? { ok: true, sync } : { ok: false, error: sync.error, sync }, sync.ok ? 200 : (sync.status || 502));
   }
 
-  if (usesExternalSearch(profile)) return testExternalSearch(context.env, config, profile);
-
   let sync = null;
   if (isManagedCustomProfile(profile) && context.env.CF_AI_GATEWAY_ADMIN_TOKEN) {
     sync = await syncManagedCustomProviders(context.env, config, { profileIds: [profileId] });
     if (!sync.ok) return json({ ok: false, error: `Could not synchronize provider address before test. ${sync.error}`, sync }, sync.status || 502);
   }
+
+  if (action === 'test-vision') return testVision(context.env, config, profile);
+  if (usesExternalSearch(profile)) return testExternalSearch(context.env, config, profile);
 
   const webSearchRequested = Boolean(profile.capabilities?.webSearch);
   const input = [
@@ -129,6 +136,20 @@ export async function onRequestPost(context) {
     webSearchSources,
     webSearchMode,
   });
+}
+
+async function testVision(env, config, profile) {
+  const result = await callAiJson({
+    env, config, profile, stage: 'provider-vision-test', reasoning: 'low',
+    schema: VISION_TEST_SCHEMA, schemaName: 'provider_vision_test',
+    input: [{ role: 'user', content: [
+      { type: 'input_text', text: 'Read the four digits in the image. Return them in the digits field as a string.' },
+      { type: 'input_image', image_url: VISION_TEST_IMAGE, detail: 'original' },
+    ] }],
+  });
+  if (!result.ok) return json({ ok: false, error: result.error }, result.status || 502);
+  if (result.result?.digits !== '7462') return json({ ok: false, error: 'The provider did not read the test image correctly.' }, 502);
+  return json({ ok: true, visionVerified: true });
 }
 
 async function testExternalSearch(env, config, profile) {
@@ -213,6 +234,7 @@ function environmentSummary(env, config) {
     openAiKeyConfigured: Boolean(env.OPENAI_API_KEY),
     cloudflareGatewayTokenConfigured: Boolean(env.CF_AI_GATEWAY_TOKEN),
     cloudflareGatewayAdminTokenConfigured: Boolean(env.CF_AI_GATEWAY_ADMIN_TOKEN),
+    cloudflareGatewayKeysTokenConfigured: Boolean(env.CF_AI_GATEWAY_KEYS_TOKEN || env.CF_AI_GATEWAY_ADMIN_TOKEN),
     adminSigningSecretConfigured: Boolean(env.RISK_ADMIN_SIGNING_SECRET),
     envAccountIdConfigured: Boolean(env.CF_ACCOUNT_ID),
     envAccountId: env.CF_ACCOUNT_ID || '',

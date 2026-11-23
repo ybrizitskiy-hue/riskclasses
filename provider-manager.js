@@ -14,10 +14,10 @@
   reopenAfterReload();
 
   function injectStylesheet() {
-    if (document.querySelector('link[href="/provider-manager.css"]')) return;
+    if (document.querySelector('link[href^="/provider-manager.css"]')) return;
     const link = document.createElement('link');
     link.rel = 'stylesheet';
-    link.href = '/provider-manager.css';
+    link.href = '/provider-manager.css?v=provider-setup-1';
     document.head.appendChild(link);
   }
 
@@ -36,46 +36,43 @@
 
   function injectModal() {
     if (document.getElementById('providerManagerModal')) return;
-    const overlay = document.createElement('div');
+    const overlay = document.createElement('dialog');
     overlay.id = 'providerManagerModal';
     overlay.className = 'admin-modal-backdrop provider-manager-backdrop';
-    overlay.hidden = true;
+    overlay.setAttribute('aria-labelledby', 'providerManagerTitle');
     overlay.innerHTML = `
-      <div class="provider-manager-modal" role="dialog" aria-modal="true" aria-labelledby="providerManagerTitle">
+      <div class="provider-manager-modal">
         <div class="provider-manager-head">
           <div>
-            <span class="admin-modal-kicker">AI Providers · admin</span>
-            <h3 id="providerManagerTitle">Provider routing & models</h3>
-            <p>Configure the models behind Auto, Economy and Quality. Cloudflare AI Gateway/BYOK keeps provider API keys out of this website and KV.</p>
+            <h3 id="providerManagerTitle">AI providers</h3>
           </div>
           <button id="providerManagerClose" type="button" class="admin-modal-close" aria-label="Close">×</button>
         </div>
-        <div id="providerState" class="provider-state">Loading provider configuration…</div>
-        <div class="provider-note"><strong>Key security:</strong> this manager stores model names, routing, upstream base URLs, BYOK aliases and optional pricing only. Raw provider API keys stay in Cloudflare AI Gateway → Provider Keys / Secrets Store. For a custom OpenAI-compatible service, enter its HTTPS root in <b>Base URL</b>; the site can create/update the Cloudflare Custom Provider when the admin API token is configured. <b>Session header</b> defaults to <code>x-opencode-session</code> for custom providers; each analysis sends a fresh <code>ses_…</code> id so OpenCode Go can route the request.</div>
-
-        <section class="provider-section">
-          <div class="provider-section-head"><div><span class="section-label">Cloudflare AI Gateway</span><h4>Gateway address</h4></div><small>Used by Cloudflare REST and provider-native/custom profiles.</small></div>
-          <div class="provider-grid">
-            <div class="provider-field"><label for="providerAccountId">Account ID</label><input id="providerAccountId" placeholder="Cloudflare account ID" /></div>
-            <div class="provider-field"><label for="providerGatewayId">Gateway ID</label><input id="providerGatewayId" placeholder="default" /></div>
-          </div>
-          <div id="providerEnv" class="provider-env"></div>
-        </section>
+        <div id="providerState" class="provider-state" role="status"></div>
 
         <section class="provider-section">
           <div class="provider-section-head">
-            <div><span class="section-label">Provider profiles</span><h4>Models, address & compatibility</h4></div>
-            <button id="providerAddBtn" type="button" class="btn ghost small">Add compatible provider</button>
+            <h4>Providers</h4>
+            <button id="providerAddBtn" type="button" class="btn ghost small">Add provider</button>
           </div>
           <div id="providerProfiles" class="provider-profiles"></div>
         </section>
 
         <section class="provider-section">
-          <div class="provider-section-head"><div><span class="section-label">Global routes</span><h4>Auto / Economy / Quality</h4></div><small>Research and escalation can be left disabled.</small></div>
+          <div class="provider-section-head"><h4>Routing</h4><small>Screenshot extraction requires vision. Esports searches Liquipedia separately.</small></div>
           <div id="providerRoutes" class="provider-route-table"></div>
         </section>
 
-        <div id="providerMessages" class="provider-errors"></div>
+        <details class="provider-section provider-advanced">
+          <summary>Gateway settings</summary>
+          <div class="provider-grid">
+            <div class="provider-field"><label for="providerAccountId">Account ID</label><input id="providerAccountId" /></div>
+            <div class="provider-field"><label for="providerGatewayId">Gateway ID</label><input id="providerGatewayId" /></div>
+          </div>
+          <div id="providerEnv" class="provider-env"></div>
+        </details>
+
+        <div id="providerMessages" class="provider-errors" role="status"></div>
         <div class="provider-footer">
           <span id="providerVersion">—</span>
           <div class="provider-footer-actions">
@@ -90,6 +87,10 @@
     // Do not close this long editing panel on backdrop clicks. Accidental clicks,
     // browser zoom/scroll interactions and touchpad gestures must not throw away work.
     document.getElementById('providerManagerClose').addEventListener('click', closeManager);
+    overlay.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      closeManager();
+    });
     document.getElementById('providerAddBtn').addEventListener('click', addProfile);
     document.getElementById('providerReloadBtn').addEventListener('click', () => {
       if (!current) return;
@@ -105,6 +106,7 @@
     document.getElementById('providerProfiles').addEventListener('input', handleProfileEdit);
     document.getElementById('providerProfiles').addEventListener('change', handleProfileEdit);
     document.getElementById('providerProfiles').addEventListener('click', handleProfileAction);
+    document.getElementById('providerProfiles').addEventListener('submit', saveProfileKey);
     document.getElementById('providerRoutes').addEventListener('change', handleRouteEdit);
   }
 
@@ -113,16 +115,26 @@
     markManagerOpen(true);
     const adminModal = document.getElementById('adminModal');
     if (adminModal) adminModal.hidden = true;
-    document.getElementById('providerManagerModal').hidden = false;
+    const modal = document.getElementById('providerManagerModal');
+    if (!modal.open) modal.showModal();
     document.body.classList.add('admin-modal-open');
     await loadCurrent({ restoreDraft: true });
   }
 
   function closeManager() {
-    document.getElementById('providerManagerModal').hidden = true;
+    if (busy) return;
+    const modal = document.getElementById('providerManagerModal');
+    modal.querySelectorAll('input[type="password"]').forEach(input => { input.value = ''; });
+    modal.close();
     document.body.classList.remove('admin-modal-open');
     markManagerOpen(false);
     clearSessionDraft();
+    const adminModal = document.getElementById('adminModal');
+    if (adminModal) {
+      adminModal.hidden = false;
+      document.body.classList.add('admin-modal-open');
+      document.getElementById('manageProvidersBtn')?.focus();
+    }
   }
 
   async function loadCurrent({ restoreDraft = false } = {}) {
@@ -139,7 +151,7 @@
       if (restoreDraft) restoreSessionDraft();
       renderAll();
       setState(
-        dirty ? 'Recovered your unsaved provider edits after the page was reloaded.' : `Loaded ${draft.profiles.length} provider profile${draft.profiles.length === 1 ? '' : 's'}.`,
+        dirty ? 'Recovered your unpublished changes.' : '',
         validation?.valid ? 'ok' : 'error'
       );
       if (dirty) scheduleValidate(0);
@@ -160,7 +172,6 @@
     renderProfiles();
     renderRoutes();
     renderValidation();
-    document.getElementById('providerVersion').textContent = `Current provider config: ${current?.config?.version || draft.version || '—'}`;
   }
 
   function renderEnvironment() {
@@ -169,77 +180,119 @@
       pill(`OpenAI direct key ${env.openAiKeyConfigured ? 'ready' : 'missing'}`, env.openAiKeyConfigured),
       pill(`Gateway run token ${env.cloudflareGatewayTokenConfigured ? 'ready' : 'missing'}`, env.cloudflareGatewayTokenConfigured),
       pill(`Gateway admin token ${env.cloudflareGatewayAdminTokenConfigured ? 'ready' : 'missing'}`, env.cloudflareGatewayAdminTokenConfigured),
+      pill(`In-app key storage ${env.cloudflareGatewayKeysTokenConfigured ? 'ready' : 'disabled'}`, env.cloudflareGatewayKeysTokenConfigured),
       pill(`Admin signing secret ${env.adminSigningSecretConfigured ? 'ready' : 'fallback'}`, env.adminSigningSecretConfigured),
       pill(`Effective account ${escapeHtml(draft.cloudflare?.accountId || env.envAccountId || 'not set')}`, Boolean(draft.cloudflare?.accountId || env.envAccountId)),
       pill(`Gateway ${escapeHtml(draft.cloudflare?.gatewayId || env.effectiveGatewayId || 'default')}`, true),
     ].join('');
   }
 
-  function renderProfiles() {
+  function renderProfiles(openIndex) {
     const root = document.getElementById('providerProfiles');
-    if (!draft.profiles.length) return root.innerHTML = '<span class="rules-empty">No profiles.</span>';
-    root.innerHTML = draft.profiles.map((profile, index) => profileCard(profile, index)).join('');
+    const expanded = new Set([...root.querySelectorAll('.provider-card[open]')].map(card => card.dataset.profileId));
+    const advanced = new Set([...root.querySelectorAll('.provider-card .provider-advanced[open]')].map(details => details.closest('.provider-card').dataset.profileId));
+    if (openIndex !== undefined) expanded.add(draft.profiles[openIndex]?.id);
+    root.innerHTML = draft.profiles.map((profile, index) => profileCard(profile, index, expanded.has(profile.id), advanced.has(profile.id))).join('') ||
+      '<span class="rules-empty">No providers added.</span>';
   }
 
-  function profileCard(profile, index) {
+  function profileCard(profile, index, open, advanced) {
     const cap = profile.capabilities || {};
     const price = profile.pricing || {};
-    const providerFields = profile.transport === 'cloudflare-provider';
-    const managedCustom = providerFields && String(profile.providerSlug || '').startsWith('custom-');
+    const gateway = profile.transport === 'cloudflare-provider';
+    const custom = gateway && profile.providerSlug?.startsWith('custom-');
+    const keyStorageReady = current?.environment?.cloudflareGatewayKeysTokenConfigured;
     return `
-      <div class="provider-card" data-card-index="${index}">
-        <div class="provider-card-head">
-          <div><strong>${escapeHtml(profile.label || profile.id || 'Provider')}</strong><small> · ${escapeHtml(profile.id || '')}</small></div>
-          <div class="provider-card-actions">
-            ${managedCustom && profile.baseUrl ? `<button type="button" class="btn ghost small" data-action="sync" data-index="${index}">Sync address</button>` : ''}
-            <button type="button" class="btn ghost small" data-action="test" data-index="${index}">Test</button>
-            <button type="button" class="btn danger small" data-action="remove" data-index="${index}">Remove</button>
+      <details class="provider-card" data-card-index="${index}" data-profile-id="${escapeHtml(profile.id)}" ${open ? 'open' : ''}>
+        <summary class="provider-card-summary">
+          <strong>${escapeHtml(profile.label || 'Provider')}</strong>
+          <span>${escapeHtml(profile.model || 'Model not set')}</span>
+          <small>${[cap.vision && 'Vision', cap.webSearch && 'Web search'].filter(Boolean).join(' · ')}</small>
+        </summary>
+        <div class="provider-card-body">
+          <div class="provider-profile-grid">
+            ${field(index, 'label', 'Name', profile.label)}
+            ${field(index, 'model', 'Model ID', profile.model, 'Exact model name', 'provider-span-2')}
+            ${selectField(index, 'protocol', 'API format', profile.protocol, [['responses','Responses'],['chat-completions','Chat Completions']])}
+            ${gateway ? field(index, 'providerSlug', 'Provider slug', profile.providerSlug, 'openai or custom-myprovider') : ''}
+            ${gateway ? `<div class="provider-base-url provider-span-2" ${custom ? '' : 'hidden'}>${field(index, 'baseUrl', 'HTTPS base URL', profile.baseUrl, 'https://api.example.com')}</div>` : ''}
+            ${gateway ? field(index, 'pathPrefix', 'API path prefix', profile.pathPrefix, 'v1') : ''}
           </div>
+          ${gateway ? `
+            <form class="provider-key-form" data-key-index="${index}" autocomplete="off">
+              ${field(index, 'byokAlias', 'Key alias', profile.byokAlias, 'A unique name for the key')}
+              ${keyStorageReady ? `
+                <div class="provider-field"><label for="provider-key-${index}">API key</label>
+                  <input id="provider-key-${index}" name="provider-api-key" type="password" autocomplete="new-password" spellcheck="false" maxlength="4096" required />
+                </div>
+                <button type="submit" class="btn ghost small">Save API key</button>
+              ` : '<small class="provider-key-note">In-app key storage needs one-time setup. You can still use an existing key alias.</small>'}
+            </form>
+          ` : ''}
+          <div class="provider-capabilities">
+            ${capBox(index,'vision','Vision',cap.vision)}${capBox(index,'webSearch','Built-in web search',cap.webSearch)}
+          </div>
+          ${cap.webSearch ? `<div class="provider-search-method">${webSearchModeField(index, profile)}</div>` : ''}
+          <div class="provider-card-actions">
+            <button type="button" class="btn ghost small" data-action="test" data-index="${index}">Test provider</button>
+            ${cap.vision ? `<button type="button" class="btn ghost small" data-action="test-vision" data-index="${index}">Test vision</button>` : ''}
+          </div>
+          <div id="providerTest${index}" class="provider-test-result" role="status"></div>
+          <details class="provider-advanced" ${advanced ? 'open' : ''}>
+            <summary>Advanced</summary>
+            <div class="provider-profile-grid">
+              ${field(index, 'id', 'Profile ID', profile.id)}
+              ${selectField(index, 'transport', 'Transport', profile.transport, [['openai-direct','Direct OpenAI'],['cloudflare-rest','Cloudflare REST / Unified'],['cloudflare-provider','Cloudflare provider/custom']])}
+              ${profile.transport === 'cloudflare-rest' ? field(index, 'byokAlias', 'Key alias', profile.byokAlias) : ''}
+              ${gateway ? field(index, 'sessionHeader', 'Session header', profile.sessionHeader, 'Optional') : ''}
+            </div>
+            <div class="provider-capabilities">
+              ${capBox(index,'jsonSchema','JSON schema',cap.jsonSchema)}${capBox(index,'reasoning','Reasoning',cap.reasoning)}${capBox(index,'promptCache','Prompt cache',cap.promptCache)}${capBox(index,'store','store:false',cap.store)}
+            </div>
+            <div class="provider-pricing">
+              ${priceField(index,'input','Input $ / 1M',price.input)}${priceField(index,'cached','Cached $ / 1M',price.cached)}${priceField(index,'output','Output $ / 1M',price.output)}${priceField(index,'webSearch','Search $ / call',price.webSearch)}
+            </div>
+            <div class="provider-card-actions">
+              ${gateway ? `<button type="button" class="btn ghost small" data-action="sync" data-index="${index}" ${custom && profile.baseUrl ? '' : 'hidden'}>Sync address</button>` : ''}
+              <button type="button" class="btn danger small" data-action="remove" data-index="${index}">Remove profile</button>
+            </div>
+          </details>
         </div>
-        <div class="provider-profile-grid">
-          ${field(index, 'label', 'Label', profile.label)}
-          ${field(index, 'id', 'Profile ID', profile.id)}
-          ${selectField(index, 'transport', 'Transport', profile.transport, [['openai-direct','Direct OpenAI'],['cloudflare-rest','Cloudflare REST / Unified'],['cloudflare-provider','Cloudflare provider/custom']])}
-          ${selectField(index, 'protocol', 'Protocol', profile.protocol, [['responses','Responses'],['chat-completions','Chat Completions']])}
-          ${field(index, 'model', 'Model', profile.model, 'provider/model or model-name', 'provider-span-2')}
-          ${field(index, 'byokAlias', 'BYOK alias', profile.byokAlias, 'default / production')}
-          ${field(index, 'providerSlug', 'Provider slug', profile.providerSlug, 'openai / groq / custom-myprovider', '', !providerFields)}
-          ${field(index, 'baseUrl', 'Base URL', profile.baseUrl, 'https://api.example.com', 'provider-span-2', !managedCustom)}
-          ${field(index, 'pathPrefix', 'Provider path prefix', profile.pathPrefix, 'v1', '', !providerFields)}
-          ${field(index, 'sessionHeader', 'Session header', profile.sessionHeader, 'x-opencode-session', '', !providerFields)}
-          ${webSearchModeField(index, profile)}
-        </div>
-        <div class="provider-capabilities">
-          ${capBox(index,'vision','Vision',cap.vision)}${capBox(index,'jsonSchema','JSON schema',cap.jsonSchema)}${capBox(index,'reasoning','Reasoning',cap.reasoning)}${capBox(index,'webSearch','Web search',cap.webSearch)}${capBox(index,'promptCache','Prompt cache',cap.promptCache)}${capBox(index,'store','store:false',cap.store)}
-        </div>
-        <div class="provider-pricing">
-          ${priceField(index,'input','Input $ / 1M',price.input)}${priceField(index,'cached','Cached $ / 1M',price.cached)}${priceField(index,'output','Output $ / 1M',price.output)}${priceField(index,'webSearch','Search $ / call',price.webSearch)}
-        </div>
-        <div id="providerTest${index}" class="provider-test-result">Endpoint: ${escapeHtml(endpointPreview(profile))}${managedCustom && profile.baseUrl ? ` · Upstream: ${escapeHtml(profile.baseUrl)}` : ''}</div>
-      </div>
+      </details>
     `;
   }
 
   function renderRoutes() {
     const root = document.getElementById('providerRoutes');
-    const options = (allowNone) => `${allowNone ? '<option value="">Disabled</option>' : ''}${draft.profiles.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.label || p.id)}</option>`).join('')}`;
-    root.innerHTML = ['economy','auto','quality'].map((mode) => {
+    const advanced = root.querySelector('details')?.open;
+    const options = (profiles, emptyLabel) => `<option value="">${emptyLabel}</option>${profiles.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.label || p.id)}</option>`).join('')}`;
+    const profiles = options(draft.profiles, 'Select a provider');
+    const visionProfiles = options(draft.profiles.filter(profile => profile.capabilities?.vision), 'Select a vision provider');
+    const optional = options(draft.profiles, 'Disabled');
+    const modes = ['auto','economy','quality'];
+    const main = modes.map((mode) => {
       const route = draft.routes?.[mode] || {};
-      return `<div class="provider-route-row"><strong>${capitalize(mode)}</strong>${routeSelect(mode,'extraction','Extraction',route.extraction,options(false))}${routeSelect(mode,'primary','Primary',route.primary,options(false))}${routeSelect(mode,'research','Research',route.research,options(true))}${routeSelect(mode,'escalation','Escalation',route.escalation,options(true))}</div>`;
+      return `<div class="provider-route-row"><strong>${capitalize(mode)}</strong>${routeSelect(mode,'extraction','Screenshot extraction',route.extraction,visionProfiles)}${routeSelect(mode,'primary','Classification',route.primary,profiles)}</div>`;
     }).join('');
+    const fallback = modes.map((mode) => {
+      const route = draft.routes?.[mode] || {};
+      return `<div class="provider-route-row"><strong>${capitalize(mode)}</strong>${routeSelect(mode,'research','Research',route.research,optional)}${routeSelect(mode,'escalation','Escalation',route.escalation,optional)}</div>`;
+    }).join('');
+    root.innerHTML = `${main}<details class="provider-advanced" ${advanced ? 'open' : ''}><summary>Research and escalation</summary>${fallback}</details>`;
     root.querySelectorAll('select').forEach((select) => { select.value = select.dataset.value || ''; });
   }
 
   function routeSelect(mode, role, label, value, options) {
-    return `<div class="provider-field"><label>${label}</label><select data-route-mode="${mode}" data-route-role="${role}" data-value="${escapeHtml(value || '')}">${options}</select></div>`;
+    const id = `provider-route-${mode}-${role}`;
+    return `<div class="provider-field"><label for="${id}">${label}<span class="provider-sr-only"> for ${capitalize(mode)}</span></label><select id="${id}" data-route-mode="${mode}" data-route-role="${role}" data-value="${escapeHtml(value || '')}">${options}</select></div>`;
   }
 
   function field(index, path, label, value, placeholder = '', extraClass = '', disabled = false) {
-    return `<div class="provider-field ${extraClass}"><label>${label}</label><input data-index="${index}" data-path="${path}" value="${escapeHtml(value || '')}" placeholder="${escapeHtml(placeholder)}" ${disabled ? 'disabled' : ''}/></div>`;
+    return `<label class="provider-field ${extraClass}"><span>${label}</span><input data-index="${index}" data-path="${path}" value="${escapeHtml(value || '')}" placeholder="${escapeHtml(placeholder)}" ${disabled ? 'disabled' : ''}/></label>`;
   }
 
   function selectField(index, path, label, value, choices) {
-    return `<div class="provider-field"><label>${label}</label><select data-index="${index}" data-path="${path}">${choices.map(([key,text]) => `<option value="${key}" ${value === key ? 'selected' : ''}>${text}</option>`).join('')}</select></div>`;
+    return `<label class="provider-field"><span>${label}</span><select data-index="${index}" data-path="${path}">${choices.map(([key,text]) => `<option value="${key}" ${value === key ? 'selected' : ''}>${text}</option>`).join('')}</select></label>`;
   }
 
   function webSearchModeField(index, profile) {
@@ -248,11 +301,11 @@
     const choices = profile.protocol === 'chat-completions'
       ? [['chat-tools','Chat built-in web_search tool'],['chat-options','Chat web_search_options'],['openrouter-plugin','OpenRouter/compatible web plugin'],['native','Provider-native / automatic']]
       : [['responses','Responses web_search tool'],['native','Provider-native / automatic']];
-    return `<div class="provider-field provider-span-2"><label>Web search adapter</label><select data-index="${index}" data-path="webSearchMode" ${enabled ? '' : 'disabled'}>${choices.map(([key,text]) => `<option value="${key}" ${value === key ? 'selected' : ''}>${text}</option>`).join('')}</select></div>`;
+    return `<label class="provider-field provider-search-mode"><span>Search method</span><select data-index="${index}" data-path="webSearchMode" ${enabled ? '' : 'disabled'}>${choices.map(([key,text]) => `<option value="${key}" ${value === key ? 'selected' : ''}>${text}</option>`).join('')}</select></label>`;
   }
 
   function priceField(index, key, label, value) {
-    return `<div class="provider-field"><label>${label}</label><input type="number" min="0" step="0.0001" data-index="${index}" data-price="${key}" value="${value == null ? '' : escapeHtml(value)}" placeholder="optional" /></div>`;
+    return `<label class="provider-field"><span>${label}</span><input type="number" min="0" step="0.0001" data-index="${index}" data-price="${key}" value="${value == null ? '' : escapeHtml(value)}" placeholder="optional" /></label>`;
   }
 
   function capBox(index, key, label, checked) {
@@ -282,22 +335,33 @@
     dirty = true;
     persistSessionDraft();
 
-    // Avoid rebuilding unrelated parts of the modal on every keystroke. Full card
-    // rebuilds are only needed when field visibility or compatibility controls change.
-    if (event.type === 'change' && ['transport','providerSlug','protocol'].includes(path)) {
+    const card = event.target.closest('.provider-card');
+    if (event.type === 'change' && path === 'transport') {
       renderProfiles();
-      renderRoutes();
+      document.querySelector(`[data-index="${index}"][data-path="${path}"]`)?.focus();
+    } else if (path === 'providerSlug' || path === 'baseUrl') {
+      const custom = profile.providerSlug.startsWith('custom-');
+      card.querySelector('.provider-base-url').hidden = !custom;
+      card.querySelector('[data-action="sync"]').hidden = !custom || !profile.baseUrl;
+    } else if (event.type === 'change' && path === 'protocol' && profile.capabilities.webSearch) {
+      card.querySelector('.provider-search-method').innerHTML = webSearchModeField(index, profile);
     } else if (event.type === 'change' && ['id','label'].includes(path)) {
       renderRoutes();
-    } else if (event.type === 'change' && capKey === 'webSearch') {
+      if (path === 'id') card.dataset.profileId = profile.id;
+      if (path === 'label') document.querySelector(`[data-card-index="${index}"] .provider-card-summary strong`).textContent = profile.label || 'Provider';
+    } else if (path === 'model') {
+      document.querySelector(`[data-card-index="${index}"] .provider-card-summary span`).textContent = profile.model || 'Model not set';
+    } else if (event.type === 'change' && ['vision','webSearch'].includes(capKey)) {
       renderProfiles();
+      renderRoutes();
+      document.querySelector(`[data-index="${index}"][data-cap="${capKey}"]`)?.focus();
     }
     scheduleValidate();
   }
 
   async function handleProfileAction(event) {
     const button = event.target.closest('[data-action]');
-    if (!button || !draft) return;
+    if (!button || !draft || busy) return;
     const index = Number(button.dataset.index);
     if (!draft.profiles[index]) return;
     if (button.dataset.action === 'remove') {
@@ -312,7 +376,7 @@
       scheduleValidate(0);
       return;
     }
-    if (button.dataset.action === 'test') await testProfile(index, button);
+    if (button.dataset.action === 'test' || button.dataset.action === 'test-vision') await testProfile(index, button);
     if (button.dataset.action === 'sync') await syncProfile(index, button);
   }
 
@@ -324,6 +388,43 @@
     dirty = true;
     persistSessionDraft();
     scheduleValidate();
+  }
+
+  async function saveProfileKey(event) {
+    const form = event.target.closest('[data-key-index]');
+    if (!form) return;
+    event.preventDefault();
+    const index = Number(form.dataset.keyIndex);
+    const profile = draft?.profiles[index];
+    const input = form.querySelector('input[type="password"]');
+    if (busy || !profile || !input) return;
+    const result = document.getElementById(`providerTest${index}`);
+    const button = form.querySelector('button[type="submit"]');
+    const alias = profile.byokAlias?.trim();
+    if (!alias) {
+      result.textContent = 'Enter a key alias before saving.';
+      form.querySelector('[data-path="byokAlias"]')?.focus();
+      return;
+    }
+    const body = JSON.stringify({ config: draft, profileId: profile.id, apiKey: input.value });
+    input.value = '';
+    button.disabled = true;
+    setBusy(true);
+    result.textContent = 'Saving API key…';
+    try {
+      const response = await fetch('/api/provider-key', {
+        method: 'POST', mode: 'same-origin', redirect: 'error',
+        headers: { 'content-type': 'application/json' }, body,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(data.error || 'Could not save the API key.');
+      result.textContent = `Key saved as ${data.alias}. Test the provider before publishing.`;
+    } catch (error) {
+      result.textContent = error.message || 'Could not save the API key.';
+    } finally {
+      setBusy(false);
+      button.disabled = false;
+    }
   }
 
   function updateCloudflare(key, value) {
@@ -339,27 +440,29 @@
   function addProfile() {
     if (!draft || draft.profiles.length >= 16) return;
     let n = draft.profiles.length + 1;
-    let id = `compatible-${n}`;
+    let id = `gateway-provider-${n}`;
     const used = new Set(draft.profiles.map((p) => p.id));
-    while (used.has(id)) id = `compatible-${++n}`;
+    while (used.has(id)) id = `gateway-provider-${++n}`;
     draft.profiles.push({
       id,
       label: `Compatible provider ${n}`,
       transport: 'cloudflare-provider',
-      protocol: 'responses',
+      protocol: 'chat-completions',
       model: '',
       providerSlug: `custom-provider-${n}`,
       baseUrl: '',
       pathPrefix: 'v1',
-      byokAlias: 'default',
-      sessionHeader: 'x-opencode-session',
-      webSearchMode: 'responses',
-      capabilities: { vision:false, jsonSchema:true, reasoning:false, webSearch:false, promptCache:false, store:false },
+      byokAlias: id,
+      sessionHeader: '',
+      webSearchMode: 'native',
+      capabilities: { vision:false, jsonSchema:false, reasoning:false, webSearch:false, promptCache:false, store:false },
       pricing: { input:null, cached:null, output:null, webSearch:null },
     });
     dirty = true;
     persistSessionDraft();
-    renderProfiles();
+    const index = draft.profiles.length - 1;
+    renderProfiles(index);
+    document.querySelector(`[data-index="${index}"][data-path="label"]`)?.focus();
     renderRoutes();
     scheduleValidate(0);
   }
@@ -391,27 +494,35 @@
     if (!draft || busy) return;
     setBusy(true);
     const result = document.getElementById(`providerTest${index}`);
+    const action = button.dataset.action;
+    const vision = action === 'test-vision';
+    button.disabled = true;
     button.textContent = 'Testing…';
-    result.textContent = draft.profiles[index].capabilities?.webSearch
+    result.textContent = vision ? 'Checking whether the model can read an image…' : draft.profiles[index].capabilities?.webSearch
       ? 'Running structured-output + web-search compatibility test…'
       : 'Running a small structured-output request…';
     try {
       const response = await fetch('/api/providers', {
         method:'POST', headers:{'content-type':'application/json'},
-        body:JSON.stringify({ action:'test', profileId:draft.profiles[index].id, config:draft }),
+        body:JSON.stringify({ action, profileId:draft.profiles[index].id, config:draft }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) throw new Error(data.error || 'Provider test failed.');
+      if (vision) {
+        result.textContent = 'Vision passed. The provider read the image correctly.';
+        return;
+      }
       const syncText = data.sync?.changed ? ' · address synchronized' : '';
       const webSource = data.webSearchSources?.[0]?.url;
       const webText = data.webSearchRequested
         ? ` · Liquipedia search verified (${data.webSearchMode || 'enabled'})${webSource ? ` · ${webSource}` : ''}`
         : '';
-      result.textContent = `✓ Connection + JSON output passed${syncText}${webText} · ${data.endpoint || endpointPreview(draft.profiles[index])}`;
+      result.textContent = `Connection and JSON passed${syncText}${webText}`;
     } catch (error) {
       result.textContent = `✕ ${error.message || 'Provider test failed.'}`;
     } finally {
-      button.textContent = 'Test';
+      button.textContent = vision ? 'Test vision' : 'Test provider';
+      button.disabled = false;
       setBusy(false);
     }
   }
@@ -443,8 +554,9 @@
     root.innerHTML = [
       ...errors.map((text) => `<div class="provider-message error">${escapeHtml(text)}</div>`),
       ...warnings.map((text) => `<div class="provider-message warn">${escapeHtml(text)}</div>`),
-    ].join('') || '<div class="provider-message ok">Provider structure and route references are valid.</div>';
+    ].join('');
     document.getElementById('providerPublishBtn').disabled = busy || !dirty || !validation?.valid;
+    document.getElementById('providerVersion').textContent = dirty ? 'Unpublished changes' : '';
   }
 
   async function publish() {
@@ -467,7 +579,7 @@
       clearSessionDraft();
       renderAll();
       const syncCount = (data.sync?.results || []).filter((item) => item.action !== 'unchanged').length;
-      setState(`Published ${draft.version}. New analyses use this routing globally.${syncCount ? ` ${syncCount} custom provider address${syncCount === 1 ? '' : 'es'} synchronized.` : ''}`, 'ok');
+      setState(`Provider settings published.${syncCount ? ` ${syncCount} custom provider address${syncCount === 1 ? '' : 'es'} synchronized.` : ''}`, 'ok');
       window.dispatchEvent(new CustomEvent('risk-provider-config-updated', { detail: data }));
       window.RISK_PROVIDER_BADGE?.refresh?.();
     } catch (error) {
@@ -477,17 +589,6 @@
       setBusy(false);
       renderValidation();
     }
-  }
-
-  function endpointPreview(profile) {
-    if (!profile) return '—';
-    const protocolPath = profile.protocol === 'chat-completions' ? 'chat/completions' : 'responses';
-    if (profile.transport === 'openai-direct') return `https://api.openai.com/v1/${protocolPath}`;
-    const account = draft?.cloudflare?.accountId || current?.environment?.envAccountId || '{account_id}';
-    const gateway = draft?.cloudflare?.gatewayId || 'default';
-    if (profile.transport === 'cloudflare-rest') return `https://api.cloudflare.com/client/v4/accounts/${account}/ai/v1/${protocolPath}`;
-    const prefix = String(profile.pathPrefix || '').replace(/^\/+|\/+$/g,'');
-    return `https://gateway.ai.cloudflare.com/v1/${account}/${gateway}/${profile.providerSlug || '{provider}'}/${prefix ? `${prefix}/` : ''}${protocolPath}`;
   }
 
   function setState(text, kind = '') {

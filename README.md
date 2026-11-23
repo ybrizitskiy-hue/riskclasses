@@ -5,7 +5,7 @@ Cloudflare Pages application for internal sportsbook risk-class classification. 
 
 The repository is public, so the internal risk-class dataset is **not committed to GitHub**. The complete canonical rules bundle lives server-side in Cloudflare KV under `RISK_RULES` → `custom-gpt-v2`.
 
-AI provider credentials are never stored in browser code, GitHub, the rules bundle, or provider configuration KV. Direct OpenAI can use the Pages secret `OPENAI_API_KEY`. Alternative providers should use Cloudflare AI Gateway BYOK/Provider Keys so the upstream key remains in Cloudflare Secrets Store.
+AI provider credentials are stored in Cloudflare. Direct OpenAI uses the Pages secret `OPENAI_API_KEY`. Compatible providers use Cloudflare AI Gateway keys backed by Secrets Store.
 
 Routing administration, Rules Manager, AI Provider Manager and cost telemetry are protected by `RISK_ADMIN_PIN`. The admin endpoint issues an 8-hour `HttpOnly; Secure; SameSite=Strict` signed cookie. A dedicated `RISK_ADMIN_SIGNING_SECRET` is recommended so admin sessions are independent of whichever AI provider is active.
 
@@ -53,7 +53,9 @@ Up to 20 previous rules snapshots are retained under `rules-history:*`, indexed 
 
 Unlock **Admin** and click **AI providers**. Provider configuration is global and is saved in `RISK_RULES` under `ai-provider-config-v1`.
 
-Raw provider keys are **not** editable in the website. Store them in Cloudflare AI Gateway → Provider Keys (BYOK). The website stores only the BYOK alias used to select a key.
+Select **Add provider**, enter the exact model ID, API format and provider slug, then enter a key alias and click **Save API key**. The app sends the key directly to Cloudflare's key storage API through the authenticated server and stores only the alias in provider settings. Choose a new alias when replacing a key. Saving a key does not publish the profile or change routing. Run **Test provider**, assign the desired route and click **Publish globally** when ready.
+
+In-app key creation uses the existing `CF_AI_GATEWAY_ADMIN_TOKEN` when Cloudflare grants it provider-key permissions. To use a separate credential, set `CF_AI_GATEWAY_KEYS_TOKEN` with permission to list and create keys and scope it to the configured account. Cloudflare documents Secrets Store Write and AI Gateway Write for key creation. The gateway must have Secrets Store enabled. Only the published account and gateway can receive keys.
 
 ### Provider transports
 
@@ -88,7 +90,7 @@ For an OpenAI-compatible provider that is not built into Cloudflare:
 3. Enter its HTTPS **Base URL**, for example `https://api.example.com`.
 4. Put API-specific path components such as `v1` into **Provider path prefix**, not the Base URL.
 5. If `CF_AI_GATEWAY_ADMIN_TOKEN` is configured, **Sync address** or Publish creates/updates the Cloudflare Custom Provider automatically.
-6. The actual upstream API key is still stored separately in Cloudflare Provider Keys/BYOK.
+6. **Save API key** can register a new custom address and store the upstream key in Cloudflare in one action. Use a new slug if an existing custom provider uses a different address.
 
 Changing an already-managed Base URL is synchronized to Cloudflare before the new global provider configuration is saved. A failed address synchronization blocks Publish so KV cannot claim an address change that Cloudflare did not accept.
 
@@ -118,7 +120,9 @@ After an admin publishes a new provider config, every user uses the new global r
 
 ### Provider Test
 
-Each profile has a **Test** button that sends a small structured-output request through its configured transport. When Web Search is enabled, the test searches Liquipedia and passes only when the provider response includes an HTTPS citation from `liquipedia.net` or one of its subdomains. Managed custom providers synchronize their Base URL first when the admin token is available. Use Test before assigning a new provider to a production route.
+**Test provider** sends a small structured-output request through the configured API. When built-in search is enabled, choose the search method supported by that provider. The search test requires an HTTPS Liquipedia citation. Esports analysis continues to look up Liquipedia through the application's separate Tavily integration.
+
+Turn on **Vision** and run **Test vision** to check whether the model can read an image. Only vision profiles can be assigned to screenshot extraction. Text-only profiles can still classify competitions after extraction.
 
 ## Globally managed routing mode
 
@@ -156,6 +160,7 @@ Tennis Virtuals / SRL / Simulated Reality remain RC H for the brands while the n
 
 - `CF_AI_GATEWAY_TOKEN` — inference/runtime token. Required when any active profile uses Cloudflare REST or provider-native/custom AI Gateway routing.
 - `CF_AI_GATEWAY_ADMIN_TOKEN` — optional but required to manage/synchronize `custom-*` Base URLs from the website. Give it AI Gateway Edit/Write permission; keep it separate from the runtime token where possible.
+- `CF_AI_GATEWAY_KEYS_TOKEN` — optional dedicated account-scoped credential for listing and creating gateway provider keys. Takes precedence over the gateway admin token for key storage.
 
 After adding or changing a Pages secret, redeploy Production.
 

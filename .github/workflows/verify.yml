@@ -28,6 +28,7 @@ jobs:
           node --check functions/api/admin.js
           node --check functions/api/rules.js
           node --check functions/api/providers.js
+          node --check functions/api/provider-key.js
           node --check functions/api/reasoning.js
           node --check functions/api/_middleware.js
           node --check functions/api/meta.js
