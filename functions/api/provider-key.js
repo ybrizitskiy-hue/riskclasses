@@ -18,7 +18,7 @@ export async function onRequestPost({ request, env }) {
     return failure('Save the key from the Risk Classes admin page.', 403);
   }
 
-  const token = String(env.CF_AI_GATEWAY_KEYS_TOKEN || '').trim();
+  const token = String(env.CF_AI_GATEWAY_KEYS_TOKEN || env.CF_AI_GATEWAY_ADMIN_TOKEN || '').trim();
   if (!token) return failure('In-app key storage is not enabled. Set up the Cloudflare key-management credential once.', 503);
   const body = await request.json().catch(() => null);
   const secret = typeof body?.apiKey === 'string' ? body.apiKey.trim() : '';

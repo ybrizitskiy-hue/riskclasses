@@ -234,7 +234,7 @@ function environmentSummary(env, config) {
     openAiKeyConfigured: Boolean(env.OPENAI_API_KEY),
     cloudflareGatewayTokenConfigured: Boolean(env.CF_AI_GATEWAY_TOKEN),
     cloudflareGatewayAdminTokenConfigured: Boolean(env.CF_AI_GATEWAY_ADMIN_TOKEN),
-    cloudflareGatewayKeysTokenConfigured: Boolean(env.CF_AI_GATEWAY_KEYS_TOKEN),
+    cloudflareGatewayKeysTokenConfigured: Boolean(env.CF_AI_GATEWAY_KEYS_TOKEN || env.CF_AI_GATEWAY_ADMIN_TOKEN),
     adminSigningSecretConfigured: Boolean(env.RISK_ADMIN_SIGNING_SECRET),
     envAccountIdConfigured: Boolean(env.CF_ACCOUNT_ID),
     envAccountId: env.CF_ACCOUNT_ID || '',

@@ -282,6 +282,7 @@ let failStore = false;
 let wrongAddress = false;
 let customMissing = false;
 let customCreated = false;
+let expectedCredential = 'test-only-keys-token-placeholder';
 globalThis.fetch = async (url, init) => {
   const endpoint = new URL(url);
   if (endpoint.pathname.endsWith('/custom-providers')) {
@@ -296,7 +297,7 @@ globalThis.fetch = async (url, init) => {
     return cfResponse(customMissing ? [] : [{ id: 'existing', slug: 'alt', enable: true, base_url: wrongAddress ? 'https://other.test' : 'https://api.alt.test' }]);
   }
   assert(endpoint.hostname === 'api.cloudflare.com' && endpoint.pathname.endsWith('/gateways/new-gateway/provider_configs'), 'Keys must go to the published gateway over Cloudflare HTTPS');
-  assert(init.headers.authorization === 'Bearer test-only-keys-token-placeholder' && init.redirect === 'error', 'Storage must use the dedicated token and reject redirects');
+  assert(init.headers.authorization === `Bearer ${expectedCredential}` && init.redirect === 'error', 'Storage must use the configured token and reject redirects');
   const key = { provider_slug: 'alt', alias: 'test-alt-key', secret_preview: fakeKey };
   if (init.method !== 'POST') return cfResponse(existingKey ? [key] : []);
   attemptedStore++;
@@ -329,6 +330,10 @@ data = await response.json();
 assert(response.status === 201 && customCreated && Object.keys(data).join(',') === 'ok,alias' && data.alias === 'test-alt-key', 'New custom providers and keys are created from one request, with only the alias in the response');
 assert((await keyRequest()).status === 409 && attemptedStore === 2, 'A duplicate alias must not overwrite a live key or send the secret again');
 assert(!JSON.stringify([...kv.map]).includes(fakeKey), 'The key must never enter provider KV');
+existingKey = false;
+expectedCredential = syncEnv.CF_AI_GATEWAY_ADMIN_TOKEN;
+response = await keyRequest({ env: { ...adminEnv, ...syncEnv } });
+assert(response.status === 201 && attemptedStore === 3, 'The existing gateway admin credential can store keys when it has permission');
 
 const visionRequest = () => onRequestPost(context('POST', { action:'test-vision', profileId:'custom-chat', config:chatConfig }, cookie, adminEnv));
 for (const digits of ['7462', '1234']) {

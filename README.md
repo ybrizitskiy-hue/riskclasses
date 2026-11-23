@@ -55,7 +55,7 @@ Unlock **Admin** and click **AI providers**. Provider configuration is global an
 
 Select **Add provider**, enter the exact model ID, API format and provider slug, then enter a key alias and click **Save API key**. The app sends the key directly to Cloudflare's key storage API through the authenticated server and stores only the alias in provider settings. Choose a new alias when replacing a key. Saving a key does not publish the profile or change routing. Run **Test provider**, assign the desired route and click **Publish globally** when ready.
 
-In-app key creation requires one-time operator setup of the `CF_AI_GATEWAY_KEYS_TOKEN` Pages secret. Scope the token to the configured Cloudflare account and give it permission to list and create AI Gateway provider keys (Secrets Store Write). The configured gateway must have Secrets Store enabled. An existing key can still be selected by alias. Only the published account and gateway can receive keys.
+In-app key creation uses the existing `CF_AI_GATEWAY_ADMIN_TOKEN` when Cloudflare grants it provider-key permissions. To use a separate credential, set `CF_AI_GATEWAY_KEYS_TOKEN` with permission to list and create keys and scope it to the configured account. Cloudflare documents Secrets Store Write and AI Gateway Write for key creation. The gateway must have Secrets Store enabled. Only the published account and gateway can receive keys.
 
 ### Provider transports
 
@@ -160,7 +160,7 @@ Tennis Virtuals / SRL / Simulated Reality remain RC H for the brands while the n
 
 - `CF_AI_GATEWAY_TOKEN` — inference/runtime token. Required when any active profile uses Cloudflare REST or provider-native/custom AI Gateway routing.
 - `CF_AI_GATEWAY_ADMIN_TOKEN` — optional but required to manage/synchronize `custom-*` Base URLs from the website. Give it AI Gateway Edit/Write permission; keep it separate from the runtime token where possible.
-- `CF_AI_GATEWAY_KEYS_TOKEN` — enables saving new BYOK keys from the provider manager. Use a dedicated account-scoped token that can list and create gateway provider keys.
+- `CF_AI_GATEWAY_KEYS_TOKEN` — optional dedicated account-scoped credential for listing and creating gateway provider keys. Takes precedence over the gateway admin token for key storage.
 
 After adding or changing a Pages secret, redeploy Production.
 
