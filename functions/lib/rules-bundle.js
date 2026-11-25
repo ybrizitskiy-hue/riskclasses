@@ -129,7 +129,19 @@ export function validateRulesBundle(value) {
       matcherCount += key === 'none' ? 0 : patterns.length;
       validateRegexList(patterns, `${prefix}.match.${key}`, errors);
     }
-    if (!matcherCount) errors.push(`${prefix}.match must contain at least one positive exact/any/all matcher.`);
+    const competitionIds = match.competitionIds;
+    if (competitionIds != null) {
+      if (!Array.isArray(competitionIds) || !competitionIds.length ||
+          competitionIds.some(id => typeof id !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(id.trim()) || id.trim().length > 64)) {
+        errors.push(`${prefix}.match.competitionIds must contain exact non-empty competition IDs (letters, digits and hyphens).`);
+      }
+      // An ID-only rule stays inert when read by an older engine that lacks ID matching.
+      if (matcherCount || match.none?.length || item.providers?.length) {
+        errors.push(`${prefix}.match.competitionIds cannot be combined with name matchers or provider filters.`);
+      }
+    } else if (!matcherCount) {
+      errors.push(`${prefix}.match must contain at least one positive exact/any/all matcher.`);
+    }
 
     // Provider sentinels keep a provider rule inert if an old engine that ignores the
     // providers field ever reads the same managed JSON. This is structural safety only.

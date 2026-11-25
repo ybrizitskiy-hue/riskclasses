@@ -80,6 +80,32 @@ changedRule.daznEs = 'RC F';
 const changedResult = classifyDeterministic({ sport:'Tennis', competition:'ATP Challenger Example', competitionId:'BG-2' }, buildRuntimeIndex(changed));
 assert(changedResult.daznEs === 'RC F' && changedResult.daznDe === 'RC G' && changedResult.daznUk === 'RC G', 'Changing managed JSON must change only the selected brand without code change');
 
+const idBundle = structuredClone(bundle);
+const category = idBundle.deterministicRules.rules.find(rule => rule.id === 'tennis-db-500plus-singles');
+const idRule = {
+  id: 'tennis-single-id-fixture', sport: 'tennis',
+  match: { competitionIds: ['DB-90001'] },
+  global: 'RC F', daznEs: '', daznDe: 'Same as Global', daznUk: '',
+  confidence: 'Medium', manualCheck: true, basis: 'Exact ID fixture',
+};
+idBundle.deterministicRules.rules.unshift(idRule);
+assert(validateRulesBundle(idBundle).valid, 'An ID-only match must validate');
+const idIndex = buildRuntimeIndex(idBundle);
+const exactMatch = classifyDeterministic({ sport: 'Tennis', competition: 'ATP Masters 1000 Example', competitionId: ' db-90001 ' }, idIndex);
+assert(exactMatch?.daznEs === 'RC F' && exactMatch.daznDe === 'RC F' && exactMatch.daznUk === 'RC F', 'The exact ID rule must precede the category rule for all three brands');
+assert(exactMatch.confidence === 'Medium' && exactMatch.manualCheck, 'Exact ID rules must carry their confidence and review');
+for (const competitionId of ['DB-90002', 'DB-900010', 'DB90001']) {
+  const categoryMatch = classifyDeterministic({ sport: 'Tennis', competition: 'ATP Masters 1000 Example', competitionId }, idIndex);
+  assert(categoryMatch?.global === category.global, 'Similar IDs must use their normal category rule');
+}
+for (const input of [{ sport: 'Golf', competitionId: 'DB-90001' }, { sport: 'Tennis', competitionId: '' }, { sport: 'Tennis', competitionId: 'BG-90001' }]) {
+  assert(classifyDeterministic({ ...input, competition: 'Unmatched example' }, idIndex) === null, 'A missing or other-sport ID must not trigger the rule');
+}
+for (const match of [{ competitionIds: [] }, { competitionIds: ['DB 90001'] }, { competitionIds: [90001] }, { competitionIds: ['DB-90001'], any: ['.*'] }]) {
+  idRule.match = match;
+  assert(!validateRulesBundle(idBundle).valid, 'Malformed and mixed ID matchers must fail validation');
+}
+
 const productionFiles = [
   '../functions/lib/deterministic.js',
   '../functions/lib/rules-bundle.js',
