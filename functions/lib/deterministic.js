@@ -21,9 +21,10 @@ export function classifyDeterministic(row, index) {
 
   const sport = normalize(sportRaw);
   const competition = normalize(competitionRaw);
-  const inferredProvider = row?.dataProvider || providerFromCompetitionId(
+  const competitionId = normalizeCompetitionId(
     row?.competitionId ?? row?.eventId ?? row?.competitionID ?? row?.eventID ?? '',
   );
+  const inferredProvider = row?.dataProvider || providerFromCompetitionId(competitionId);
   const dataProvider = normalize(inferredProvider);
   if (!index?.compiledRules?.length) return null;
 
@@ -31,7 +32,7 @@ export function classifyDeterministic(row, index) {
   for (const compiled of index?.compiledRules || []) {
       if (compiled.sport !== sport) continue;
       if (compiled.providers.length && !compiled.providers.includes(dataProvider)) continue;
-      if (!matches(compiled, competition, dataProvider)) continue;
+      if (!matches(compiled, competition, dataProvider, competitionId)) continue;
       result = confirmed(compiled);
       break;
     }
@@ -55,6 +56,7 @@ function compileRules(rules) {
         sport,
         providers: compileProviders(item.providers),
         exact: compileExact(match.exact),
+        competitionIds: new Set((match.competitionIds || []).map(normalizeCompetitionId)),
         any: compileList(match.any),
         all: compileList(match.all),
         none: compileList(match.none),
@@ -129,7 +131,12 @@ function compileList(values) {
     .map((value) => new RegExp(value, 'i'));
 }
 
-function matches(rule, competition, dataProvider) {
+function normalizeCompetitionId(value) {
+  return String(value ?? '').trim().toUpperCase();
+}
+
+function matches(rule, competition, dataProvider, competitionId) {
+  if (rule.competitionIds.size) return rule.competitionIds.has(competitionId);
   if (rule.exact.size && !rule.exact.has(competition)) return false;
   const test = (pattern) => pattern.test(competition) || Boolean(dataProvider && pattern.test(dataProvider));
   if (rule.any.length && !rule.any.some(test)) return false;
